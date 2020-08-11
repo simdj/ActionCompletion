@@ -10,13 +10,15 @@ class BaseLineClassifier(nn.Module):
 	integrate attention lstm / completion lstm
 	implementation of weakly-supervised ... (ICCVW 2019)
 	"""
-	def __init__(self, emb_dim=128, hid_dim=64):
+	def __init__(self, embed_dim=128, hidden_dim=64,):
 		super(BaseLineClassifier, self).__init__()
-		self.hid_dim = hid_dim
-		self.attentionLSTM = nn.LSTM(emb_dim, hid_dim)
-		self.hidden2attion_score = nn.Linear(hid_dim, 1)
-		self.completionLSTM = nn.LSTM(emb_dim, hid_dim)
-		self.hidden2completion_score = nn.Linear(hid_dim,1)
+		self.hidden_dim = hidden_dim
+
+		self.attentionLSTM = nn.LSTM(embed_dim, hidden_dim)
+		self.hidden2attion_score = nn.Linear(hidden_dim, 1)
+		
+		self.completionLSTM = nn.LSTM(embed_dim, hidden_dim)
+		self.hidden2completion_score = nn.Linear(hidden_dim,1)
 
 	def forward(self, seq_emb_frame):
 		# seq_emb_frame - [batch_size x seq_len x hidden_dim]
