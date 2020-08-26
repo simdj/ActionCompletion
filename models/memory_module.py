@@ -20,15 +20,17 @@ from torch.utils.data import DataLoader, Dataset
 
 # from utils import progress_bar, set_logging_defaults
 
-
+import torch
 
 import random
 
 class MemoryModule():
-	def __init__(self, nb_class, capacity_per_class=5):
-		self.nb_class = nb_class
+	def __init__(self, class_set, capacity_per_class=5):
+		self.class_set = class_set
+
 		self.capacity_per_class = capacity_per_class
-		self.memory = dict({x:[] for x in range(self.nb_class) })
+		self.memory = dict({x:[] for x in self.class_set })
+		print('memory', self.memory)
 
 	def add(self, cnn_feat_seq, class_idx, add_prob=0.1):
 		target_memory = self.memory[class_idx]
@@ -44,11 +46,19 @@ class MemoryModule():
 
 
 	def get_memory(self, class_idx, nb_memory=1):
-		return random.choices(self.memory[class_idx], k=min(nb_memory, self.capacity_per_class))
+		memory_list = random.choices(self.memory[class_idx], k=min(nb_memory, self.capacity_per_class))
+		return torch.stack(memory_list)
 	
+	
+	def get_batch_memory(self, batch_class_idx, nb_memory=1):
+		# return: batch x memory_number x seq_len x dim
+		# return: list of list of torch.tensor ==> call torch.stack and to(device)
+		batch_memory_list = [ self.get_memory(int(idx.item()), nb_memory) for idx in batch_class_idx ]
+		return torch.stack(batch_memory_list)
+
 	def clear(self):
 		self.memory.clear()
-		self.memory = dict({x:[] for x in range(self.nb_class) })
+		self.memory = dict({x:[] for x in self.class_set })
 
 	def construct_positive_memory_all(self, device, loader, model):
 		"""
@@ -78,11 +88,11 @@ class MemoryModule():
 				
 				# progress_bar(batch_idx, len(loader), '')
 			
-		print('Epoch time: {:.2f} s. '.format(time.time() - time_memory_build_start))
+		print('Memory Construction Done. Elapsed time: {:.2f} s. '.format(time.time() - time_memory_build_start))
 			
 	def construct_positive_memory_fast(self, device, loader, model):
 
-		memory_full_state = dict( {x:0 for x in range(self.nb_class) } )
+		memory_full_state = dict( {x:0 for x in self.class_set } )
 
 		self.clear()
 
@@ -95,25 +105,25 @@ class MemoryModule():
 				batch_moment = data['moment']
 				positive_mask = batch_moment>0
 
-				if len(positive_mask)==0:
+				if sum(positive_mask)==0:
 					continue
 				
 				positive_batch_action = data['action'][positive_mask].tolist()
 				positive_batch_frame_seq = data['frame_seq'][positive_mask].to(device)
-				
 				positive_batch_cnn_feat_seq = cnn_encoder(positive_batch_frame_seq)
 				for cnn_feat_seq, action_class in zip(positive_batch_cnn_feat_seq, positive_batch_action ):
 					if memory_full_state[action_class]<self.capacity_per_class:
 						self.add(cnn_feat_seq, action_class, add_prob=1.0)
 						memory_full_state[action_class] +=1 
 
-				memory_meet_capacity_count=sum([x[1]==self.capacity_per_class for x in memory_full_state.items()])
-				is_full_memory = memory_meet_capacity_count==self.nb_class
-				if is_full_memory:
+				current_memory_size = sum(memory_full_state.values())
+				full_size = len(self.class_set)*self.capacity_per_class
+				if current_memory_size == full_size:
 					break
 				# progress_bar(batch_idx, len(loader), '')
+				# print(self.memory)
 			
-		print('Epoch time: {:.2f} s. '.format(time.time() - time_memory_build_start))
+		print('Memory Construction Done. Elapsed time: {:.2f} s. '.format(time.time() - time_memory_build_start))
 
 
 					
