@@ -23,6 +23,7 @@ from vidaug import augmentors as va
 
 from datasets.video_to_frames import UCF101Dataset
 from datasets.rgbd_ac import RGBD_AC_Dataset
+from datasets.self_supervised_data import Self_Supervised_Dataset
 
 from models.encoder import FrameSequenceEncoder
 from models.alignment import batch_get_alignment
@@ -58,7 +59,7 @@ def parse_args():
     
     parser.add_argument('--bs', type=int, default=4, help='mini-batch size')
     
-    parser.add_argument('--num_workers', type=int, default=4, help='number of data loading workers')
+    parser.add_argument('--num_workers', type=int, default=8, help='number of data loading workers')
     # parser.add_argument('--pf', type=int, default=100, help='print frequency every batch')
     # parser.add_argument('--seed', type=int, default=632, help='seed for initializing training.')
     parser.add_argument('--cnn_freeze', type=bool, default=True, help='freeze cnn encoder')
@@ -484,6 +485,22 @@ def get_video_augments():
 	return video_augments
 
 
+def setup_config(args):	
+	pass
+
+
+def setup_model():
+	pass
+
+
+def setup_data():
+	pass
+
+
+def setup_experiment(args):
+	pass
+
+
 if __name__ == "__main__":
 	args = parse_args()
 	print(vars(args))
@@ -544,34 +561,16 @@ if __name__ == "__main__":
 	
 
 
-	if args.data=='ucf101':
-		class_idx_filename = 'completion_all_classInd.txt'
-		# class_idx_filename = 'completion_blowing_classInd.txt'		
-		train_dataset = UCF101Dataset("../data/ucf101", class_idx_filename=class_idx_filename
-			, train=True, transforms_=data_transforms["train"], augments_=data_augments)
-		test_dataset = UCF101Dataset("../data/ucf101", class_idx_filename=class_idx_filename
-			, train=False, transforms_=data_transforms["val"])
-	elif args.data=='rgbd_ac':
-		class_idx_filename = 'completion_all_classInd.txt'
-		# class_idx_filename = 'completion_open_classInd.txt'
-		train_dataset = RGBD_AC_Dataset("../data/RGBD-AC", class_idx_filename=class_idx_filename
-			, train=True, transforms_=data_transforms["train"], augments_=data_augments)
-		test_dataset = RGBD_AC_Dataset("../data/RGBD-AC", class_idx_filename=class_idx_filename
-			, train=False, transforms_=data_transforms["val"])
-	
-	else:
-		raise ValueError('Specify data(ucf101/hmdb51/rgbd-ac')
+	# train_dataset = RGBD_AC_Dataset("../../data/RGBD-AC", class_idx_filename=class_idx_filename, train=True, split='1')
+	train_dataset = Self_Supervised_Dataset('../data/ucf101', video_len=64, train=True, transforms_=data_transforms['train'])
+	test_dataset = Self_Supervised_Dataset('../data/ucf101', video_len=64, train=False, transforms_=data_transforms['val'])
 
-
-	train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers
-		, shuffle=True, collate_fn=make_batch)
-	test_dataloader = DataLoader(test_dataset, batch_size=batch_size, num_workers=num_workers
-		,  shuffle=True, collate_fn=make_batch)
+	# root_dir, split='1', data_len, video_len, task, train=True):
+	train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True, collate_fn = make_batch, num_workers=num_workers)
+	test_dataloader = DataLoader(test_dataset, batch_size=8, shuffle=True, collate_fn = make_batch, num_workers=num_workers)
 	
-	
+	# 	 -----------------------------------------------------------------------------------------
 	model = [frame_sequence_encoder, completion_classifier]
-	
-
 
 	params_to_update = list(frame_sequence_encoder.parameters())+list(completion_classifier.parameters())
 	
@@ -579,8 +578,6 @@ if __name__ == "__main__":
 	loss_fn = nn.BCELoss()
 
 	optimizer = optim.SGD(params_to_update, lr=args.lr, momentum=args.momentum, weight_decay=args.wd)
-
-
 
 	mm = MemoryModule(class_set=train_dataset.class_set, capacity_per_class=10)
 

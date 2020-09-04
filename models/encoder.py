@@ -27,10 +27,10 @@ class IdentityLayer(nn.Module):
     def forward(self, x):
         return x
 class FrameSequenceEncoder(nn.Module):
-	def __init__(self, model_name='reesnet', use_pretrained=True, feature_extract=True):
+	def __init__(self, model_name='resnet', use_pretrained=True, base_feature_extract=True, embedder_feature_extract=False):
 		super(FrameSequenceEncoder, self).__init__()
-		self.base_encoder = BaseEncoder(model_name, use_pretrained, feature_extract)
-		self.conv_embedder = ConvEmbedder()
+		self.base_encoder = BaseEncoder(model_name, use_pretrained, base_feature_extract)
+		self.conv_embedder = ConvEmbedder(embedder_feature_extract)
 
 
 	def forward(self, frame_seq, num_frames_of_context=2):
@@ -202,8 +202,10 @@ def get_fc_layers(in_channel, fc_params):
 	
 
 class ConvEmbedder(nn.Module):
-	def __init__(self):
+	def __init__(self, feature_extract=False):
 		super(ConvEmbedder, self).__init__()
+		self.feature_extract = feature_extract
+
 		conv_params = CONFIG.MODEL.CONV_EMBEDDER_MODEL.CONV_LAYERS
 		fc_params = CONFIG.MODEL.CONV_EMBEDDER_MODEL.FC_LAYERS
 		self.use_bn = CONFIG.MODEL.CONV_EMBEDDER_MODEL.USE_BN
@@ -228,6 +230,11 @@ class ConvEmbedder(nn.Module):
 		num_features_before_embedding = fc_params[-1][0]
 		self.embedding_dim = CONFIG.MODEL.CONV_EMBEDDER_MODEL.EMBEDDING_SIZE
 		self.embedding_layer = nn.Linear(num_features_before_embedding, self.embedding_dim)
+
+		# feature layer freeze or not
+		if feature_extract:
+			for param in self.parameters():
+				param.requires_grad=False
 
 	def forward(self, cnn_feat_seq, num_frames_of_context=2, shape_check=False):
 		"""

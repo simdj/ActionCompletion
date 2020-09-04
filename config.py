@@ -21,114 +21,145 @@ from __future__ import print_function
 
 from easydict import EasyDict as edict
 
+import logging
+import argparse
+import os
+from utils import progress_bar, set_logging_defaults
+
+import torch
+from datetime import datetime
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Video Classification')
+    parser.add_argument('--experiment_type', type=str, default='transfer', help='basic/transfer')
+
+    parser.add_argument('--data', type=str, default='self', help='ucf101/hmdb51/ugbd_ac/self')
+
+    parser.add_argument('--mode', type=str, default='train', help='train/test')
+    parser.add_argument('--backbone', type=str, default='resnet50', help='vgg/resnet/c3d/r3d/r21d')
+    parser.add_argument('--dataset', type=str, default='ucf101', help='ucf101/hmdb51')
+    parser.add_argument('--split', type=str, default='1', help='dataset split')
+    # parser.add_argument('--cl', type=int, default=16, help='clip length')
+    parser.add_argument('--sgpu', type=int, default=0, help='GPU id')
+    parser.add_argument('--ngpu', type=int, default=1, help='number of GPU')
+    parser.add_argument('--lr', type=float, default=1e-2, help='learning rate')
+    parser.add_argument('--momentum', type=float, default=9e-1, help='momentum')
+    parser.add_argument('--wd', type=float, default=1e-2, help='weight decay')
+
+    parser.add_argument('--log', type=str, default='./log/', help='log directory')
+    parser.add_argument('--log_file_name', type=str, default='log.csv', help='log file name')    
+    parser.add_argument('--ckpt', type=str, help='checkpoint path')
+    # parser.add_argument('--desp', type=str, help='additional description')
+    parser.add_argument('--num_epoch', type=int, default=100, help='number of total epochs to run')
+    parser.add_argument('--start-epoch', type=int, default=1, help='manual epoch number (useful on restarts)')
+    
+    parser.add_argument('--bs', type=int, default=64, help='mini-batch size')
+    
+    parser.add_argument('--num_workers', type=int, default=8, help='number of data loading workers')
+    # parser.add_argument('--pf', type=int, default=100, help='print frequency every batch')
+    # parser.add_argument('--seed', type=int, default=632, help='seed for initializing training.')
+    parser.add_argument('--cnn_freeze', type=bool, default=True, help='freeze cnn encoder')
+
+    parser.add_argument('--memory_start_epoch', type=int, default=10, help='epoch when memory moddule is used')
+    parser.add_argument('--ref_usage_cnt', type=int, default=5, help='number of reference memory to use')
+
+    args = parser.parse_args()
+    return args
+
+def set_config_with_args(args):
+    CONFIG.NUM_WORKERS = args.num_workers
+
+    
+    # log <- datetime info
+    log_datetime =  datetime.now().strftime('%m_%d_%H_%M')
+    
+    CONFIG.LOG.DIR = os.path.join(args.log, log_datetime, args.experiment_type)
+
+    # logdir = os.path.join(CONFIG.LOG.DIR)
+    set_logging_defaults(CONFIG.LOG.DIR, args)
+    logger = logging.getLogger('main')
+    # logname = os.path.join(logdir, args.log_file_name)
+
+    
+    CONFIG.MODEL.BASE_MODEL.FREEZE = args.cnn_freeze
+
+    CONFIG.OPTIMIZER.LR = args.lr
+    CONFIG.OPTIMIZER.WD = args.wd
+
+    
+    CONFIG.TRAIN.NUM_EPOCH = args.num_epoch
+    CONFIG.TRAIN.BATCH_SIZE = args.bs
+
+
+
+
+    use_cuda = torch.cuda.is_available()
+    device = "cpu"
+    if use_cuda:
+        print('gpu cnt', torch.cuda.device_count())
+        gpu_idx = args.sgpu
+        device = torch.device('cuda:'+str(gpu_idx))
+    CONFIG.DEVICE = device
+
+    CONFIG.DATA.DATASET = args.data
+
+
 # Get the configuration dictionary whose keys can be accessed with dot.
 CONFIG = edict()
 
 # ******************************************************************************
-# Experiment params
+# params
 # ******************************************************************************
+CONFIG.DEVICE = 'cpu'
+CONFIG.NUM_WORKERS = 4
+CONFIG.IMAGE_SIZE = 224
 
-# Directory for the experiment logs.
-CONFIG.LOGDIR = '/tmp/alignment_logs/'
-# Dataset for training alignment.
-# Check dataset_splits.py for full list.
-CONFIG.DATASETS = [
-    # 'baseball_pitch',
-    # 'baseball_swing',
-    # 'bench_press',
-    # 'bowling',
-    # 'clean_and_jerk',
-    # 'golf_swing',
-    # 'jumping_jacks',
-    # 'pushups',
-    # 'pullups',
-    # 'situp',
-    # 'squats',
-    # 'tennis_forehand',
-    # 'tennis_serve',
-    'pouring',
-]
-
-# Path to tfrecords.
-CONFIG.PATH_TO_TFRECORDS = '/tmp/%s_tfrecords/'
-# Algorithm used for training: alignment, sal, alignment_sal_tcn,
-# classification, tcn . (alignment is called tcc in paper)
-CONFIG.TRAINING_ALGO = 'alignment'
-# Size of images/frames.
-CONFIG.IMAGE_SIZE = 224  # For ResNet50
+# CONFIG.NUM_EPOCH = 20
 
 # ******************************************************************************
-# Training params
+# DATA
 # ******************************************************************************
+CONFIG.DATA = edict()
+CONFIG.DATA.DATASET = 'ucf101'
 
-# Number of training steps.
+
+# # ******************************************************************************
+# # Training params
+# # ******************************************************************************
+
+# # Number of training steps.
 CONFIG.TRAIN = edict()
-CONFIG.TRAIN.MAX_ITERS = 150000
-# Number of samples in each batch.
-CONFIG.TRAIN.BATCH_SIZE = 2
-# Number of frames to use while training.
-CONFIG.TRAIN.NUM_FRAMES = 20
-CONFIG.TRAIN.VISUALIZE_INTERVAL = 200
+CONFIG.TRAIN.NUM_EPOCH = 2
+# # Number of samples in each batch.
+CONFIG.TRAIN.BATCH_SIZE = 8
+# # Number of frames to use while training.
+# CONFIG.TRAIN.NUM_FRAMES = 20
+# CONFIG.TRAIN.VISUALIZE_INTERVAL = 200
+
+
 
 # ******************************************************************************
-# Eval params
+# self-learning params
 # ******************************************************************************
-CONFIG.EVAL = edict()
-# Number of samples in each batch.
-CONFIG.EVAL.BATCH_SIZE = 2
-# Number of frames to use while evaluating. Only used to see loss in eval mode.
-CONFIG.EVAL.NUM_FRAMES = 20
+CONFIG.SELF_LEARN = edict()
+CONFIG.SELF_LEARN.VIDEO_LEN = 32
 
-CONFIG.EVAL.VAL_ITERS = 20
-# A task evaluates the embeddings or the trained model.
-# Currently available tasks are: 'algo_loss', 'classification',
-# 'kendalls_tau', 'event_completion' (called progression in paper),
-# 'few_shot_classification'
-# Provide a list of tasks using which the embeddings will be evaluated.
-CONFIG.EVAL.TASKS = [
-    'algo_loss',
-    'classification',
-    'kendalls_tau',
-    'event_completion',
-    'few_shot_classification'
-]
 
-CONFIG.EVAL.FRAMES_PER_BATCH = 25
-CONFIG.EVAL.KENDALLS_TAU_STRIDE = 5  # 5 for Pouring, 2 for PennAction
-CONFIG.EVAL.KENDALLS_TAU_DISTANCE = 'sqeuclidean'  # cosine, sqeuclidean
-CONFIG.EVAL.CLASSIFICATION_FRACTIONS = [0.1, 0.5, 1.0]
-CONFIG.EVAL.FEW_SHOT_NUM_LABELED = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-CONFIG.EVAL.FEW_SHOT_NUM_EPISODES = 50
+
 
 # ******************************************************************************
-# Model params
+# model params
 # ******************************************************************************
-# Currently InceptionV3 implies load ImageNet pretrained weights.
 CONFIG.MODEL = edict()
 
-CONFIG.MODEL.EMBEDDER_TYPE = 'conv'
+
+
 
 CONFIG.MODEL.BASE_MODEL = edict()
-# Resnet50, VGGM
-CONFIG.MODEL.BASE_MODEL.NETWORK = 'Resnet50_pretrained'
-# conv4_block3_out, conv4 (respective layers in networks)
-CONFIG.MODEL.BASE_MODEL.LAYER = 'conv4_block3_out'
+CONFIG.MODEL.BASE_MODEL.NETWORK = 'resnet50'
+CONFIG.MODEL.BASE_MODEL.FREEZE = True
 
-# Select which layers to train.
-# train_base defines how we want proceed with fine-tuning the base model.
-# 'frozen' : Weights are fixed and batch_norm stats are also fixed.
-# 'train_all': Everything is trained and batch norm stats are updated.
-# 'only_bn': Only tune batch_norm variables and update batch norm stats.
-CONFIG.MODEL.TRAIN_BASE = 'only_bn'
-CONFIG.MODEL.TRAIN_EMBEDDING = True
 
-# pylint: disable=line-too-long
-CONFIG.MODEL.RESNET_PRETRAINED_WEIGHTS = '/tmp/resnet50v2_weights_tf_dim_ordering_tf_kernels_notop.h5'
-# pylint: enable=line-too-long
-
-# VGG_M-esque model
-CONFIG.MODEL.VGGM = edict()
-CONFIG.MODEL.VGGM.USE_BN = True
 
 CONFIG.MODEL.CONV_EMBEDDER_MODEL = edict()
 # List of conv layers defined as (channels, kernel_size, activate).
@@ -167,121 +198,30 @@ CONFIG.MODEL.CONV_EMBEDDER_MODEL.INPUT_CHANNEL_BASE=1024 #resnet50-> 1024,
 CONFIG.MODEL.L2_REG_WEIGHT = 0.00001
 
 # ******************************************************************************
-# Alignment params
-# ******************************************************************************
-CONFIG.ALIGNMENT = edict()
-CONFIG.ALIGNMENT.CYCLE_LENGTH = 2
-CONFIG.ALIGNMENT.LABEL_SMOOTHING = 0.1
-CONFIG.ALIGNMENT.SOFTMAX_TEMPERATURE = 0.1
-CONFIG.ALIGNMENT.LOSS_TYPE = 'regression_mse_var'
-CONFIG.ALIGNMENT.NORMALIZE_INDICES = True
-CONFIG.ALIGNMENT.VARIANCE_LAMBDA = 0.001
-CONFIG.ALIGNMENT.FRACTION = 1.0
-CONFIG.ALIGNMENT.HUBER_DELTA = 0.1
-CONFIG.ALIGNMENT.SIMILARITY_TYPE = 'l2'  # l2, cosine
-# Stochastic matching is not optimized for TPUs.
-# Initial experiments were done with stochastic version, which can potentially
-# handle longer sequences.
-CONFIG.ALIGNMENT.STOCHASTIC_MATCHING = False
-
-# ******************************************************************************
-# Shuffle and Learn params
-# ******************************************************************************
-CONFIG.SAL = edict()
-CONFIG.SAL.DROPOUT_RATE = 0.0
-# List of fc layers defined as (channels, activate).
-CONFIG.SAL.FC_LAYERS = [(128, True), (64, True), (2, False)]
-CONFIG.SAL.SHUFFLE_FRACTION = 0.75
-# Number of triplets to sample from each video in batch.
-CONFIG.SAL.NUM_SAMPLES = 8
-CONFIG.SAL.LABEL_SMOOTHING = 0.0
-
-# ******************************************************************************
-# Alignment and Shuffle and Learn and TCN params
-# ******************************************************************************
-CONFIG.ALIGNMENT_SAL_TCN = edict()
-# The weight for the tcn loss is (1 - alignment_loss_weight - sal_loss_weight)
-CONFIG.ALIGNMENT_SAL_TCN.ALIGNMENT_LOSS_WEIGHT = 0.33
-CONFIG.ALIGNMENT_SAL_TCN.SAL_LOSS_WEIGHT = 0.33
-
-# ******************************************************************************
-# Classification/Supervised Learning of Per-frame Classes params
-# ******************************************************************************
-CONFIG.CLASSIFICATION = edict()
-CONFIG.CLASSIFICATION.LABEL_SMOOTHING = 0.0
-CONFIG.CLASSIFICATION.DROPOUT_RATE = 0.0
-
-# ******************************************************************************
-# Time Contrastive Network params
-# ******************************************************************************
-CONFIG.TCN = edict()
-CONFIG.TCN.POSITIVE_WINDOW = 5
-CONFIG.TCN.REG_LAMBDA = 0.002
-
-# ******************************************************************************
 # Optimizer params
 # ******************************************************************************
 CONFIG.OPTIMIZER = edict()
-# Supported optimizers are: AdamOptimizer, MomentumOptimizer
-CONFIG.OPTIMIZER.TYPE = 'AdamOptimizer'
+CONFIG.OPTIMIZER.TYPE = 'Adam'
+CONFIG.OPTIMIZER.LR = 1e-3
+CONFIG.OPTIMIZER.WD = 1e-3
+CONFIG.OPTIMIZER.MOMENTUM  = 9e-1
+# # Supported optimizers are: AdamOptimizer, MomentumOptimizer
+# CONFIG.OPTIMIZER.TYPE = 'AdamOptimizer'
 
-CONFIG.OPTIMIZER.LR = edict()
-# Initial learning rate for optimizer.
-CONFIG.OPTIMIZER.LR.INITIAL_LR = 0.0001
-# Learning rate decay strategy.
-# Currently Supported strategies: fixed, exp_decay, manual
-CONFIG.OPTIMIZER.LR.DECAY_TYPE = 'fixed'
-CONFIG.OPTIMIZER.LR.EXP_DECAY_RATE = 0.97
-CONFIG.OPTIMIZER.LR.EXP_DECAY_STEPS = 1000
-CONFIG.OPTIMIZER.LR.MANUAL_LR_STEP_BOUNDARIES = [5000, 10000]
-CONFIG.OPTIMIZER.LR.MANUAL_LR_DECAY_RATE = 0.1
-CONFIG.OPTIMIZER.LR.NUM_WARMUP_STEPS = 0
-
-# ******************************************************************************
-# Data params
-# ******************************************************************************
-CONFIG.DATA = edict()
-CONFIG.DATA.SHUFFLE_QUEUE_SIZE = 0
-CONFIG.DATA.NUM_PREFETCH_BATCHES = 1
-CONFIG.DATA.RANDOM_OFFSET = 1
-CONFIG.DATA.STRIDE = 16
-CONFIG.DATA.SAMPLING_STRATEGY = 'offset_uniform'  # offset_uniform, stride
-CONFIG.DATA.NUM_STEPS = 2  # number of frames that will be embedded jointly,
-CONFIG.DATA.FRAME_STRIDE = 15  # stride between context frames
-# Set this to False if your TFRecords don't have per-frame labels.
-CONFIG.DATA.FRAME_LABELS = True
-CONFIG.DATA.PER_DATASET_FRACTION = 1.0  # Use 0 to use only one sample.
-CONFIG.DATA.PER_CLASS = False
-# stride of frames while embedding a video during evaluation.
-CONFIG.DATA.SAMPLE_ALL_STRIDE = 1
+# CONFIG.OPTIMIZER.LR = edict()
+# # Initial learning rate for optimizer.
+# CONFIG.OPTIMIZER.LR.INITIAL_LR = 0.0001
+# # Learning rate decay strategy.
+# # Currently Supported strategies: fixed, exp_decay, manual
+# CONFIG.OPTIMIZER.LR.DECAY_TYPE = 'fixed'
+# CONFIG.OPTIMIZER.LR.EXP_DECAY_RATE = 0.97
+# CONFIG.OPTIMIZER.LR.EXP_DECAY_STEPS = 1000
+# CONFIG.OPTIMIZER.LR.MANUAL_LR_STEP_BOUNDARIES = [5000, 10000]
+# CONFIG.OPTIMIZER.LR.MANUAL_LR_DECAY_RATE = 0.1
+# CONFIG.OPTIMIZER.LR.NUM_WARMUP_STEPS = 0
 
 # ******************************************************************************
-# Augmentation params
+# Experiment params
 # ******************************************************************************
-CONFIG.AUGMENTATION = edict()
-CONFIG.AUGMENTATION.RANDOM_FLIP = True
-CONFIG.AUGMENTATION.RANDOM_CROP = False
-CONFIG.AUGMENTATION.BRIGHTNESS = True
-CONFIG.AUGMENTATION.BRIGHTNESS_MAX_DELTA = 32.0 / 255
-CONFIG.AUGMENTATION.CONTRAST = True
-CONFIG.AUGMENTATION.CONTRAST_LOWER = 0.5
-CONFIG.AUGMENTATION.CONTRAST_UPPER = 1.5
-CONFIG.AUGMENTATION.HUE = False
-CONFIG.AUGMENTATION.HUE_MAX_DELTA = 0.2
-CONFIG.AUGMENTATION.SATURATION = False
-CONFIG.AUGMENTATION.SATURATION_LOWER = 0.5
-CONFIG.AUGMENTATION.SATURATION_UPPER = 1.5
-
-# ******************************************************************************
-# Logging params
-# ******************************************************************************
-CONFIG.LOGGING = edict()
-# Number of steps between summary logging.
-CONFIG.LOGGING.REPORT_INTERVAL = 100
-
-# ******************************************************************************
-# Checkpointing params
-# ******************************************************************************
-CONFIG.CHECKPOINT = edict()
-# Number of steps between consecutive checkpoints.
-CONFIG.CHECKPOINT.SAVE_INTERVAL = 1000
+CONFIG.LOG = edict()
+CONFIG.LOG.DIR = './log/'

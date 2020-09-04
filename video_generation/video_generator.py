@@ -16,6 +16,9 @@ from skimage import io as image_io
 import torch
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms, datasets
+
+from torchvision.transforms import functional as TF
+
 from PIL import Image as PILImage
 
 import cv2
@@ -118,13 +121,23 @@ def get_detail_milestone(rotation_milestone, video_len, is_random=False):
 	return detail_schedule
 
 
+def generate_rotating_video_torch(query_image_path, rotation_milestone, video_len, is_random=False):
+	query_image = PILImage.open(query_image_path)
+	w,h = query_image.size
+	output_size = (h*crop_ratio, w*crop_ratio)
+	rotation_milestone_detail = get_detail_milestone(rotation_milestone, video_len, is_random=is_random)
+	# image_list = [query_image.rotate(degree) for degree in rotation_milestone_detail]
+	image_list = [TF.centercrop(TF.rotate(query_image, degree),output_size) for degree in rotation_milestone_detail]
+	return image_list, rotation_milestone_detail
+
+
+
 def generate_rotating_video(query_image_path, rotation_milestone, video_len, is_random=False):
 	"""
 	arg: query_image_path
 	arg: rotation_milestone: - [0,90,0], [0,10,20,30,20,10]
 	arg: video len: length of video to handle schedule - 64, 180,  #TODO - fix expression
 	return : image_list: [PIL Image, ...]
-	# return: videos : numpy ndarray [Lx?]
 	return: rotation_milestone_detail: [rotation_degree, ...]
 	"""
 	query_image = PILImage.open(query_image_path)
@@ -225,6 +238,6 @@ def test(query_image_path):
 	
 
 if __name__ =="__main__":
-	query_image_path = "../datasets/test.jpg"
+	query_image_path = "../datasets/f3.jpg"
 	test(query_image_path)
 

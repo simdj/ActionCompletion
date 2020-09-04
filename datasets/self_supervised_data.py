@@ -22,27 +22,39 @@ from PIL import Image
 import cv2
 
 from video_generation.video_generator import generate_rotating_video
+from video_generation.SS_TASK import generate_rotation_task, get_rotation_task
 
 class Self_Supervised_Dataset(Dataset):
-	def __init__(self, root_dir, split='1', train=True, video_len=100, task='rotate_and_return', transforms_=None):
+	def __init__(self, root_dir, split='1', train=True, video_len=100, task_idx=0, transforms_=None):
 		self.root_dir = root_dir
 		self.split = split
 		self.train = train
 
 		self.video_len = video_len
-		self.task = task 
+		self.task_idx = task_idx 
 
 		self.transforms_ = transforms_
 
 		self.init_with_ucf101()
 
-		self.init_task_info()		
+		self.init_task_info(self.task_idx)
+
+		self.class_set = [0]  # TODO action class		
 	
 
-	def init_task_info(self):
-		self.positive_ratio = 0.3
-		self.list_positive_schedule_skeleton = [[0,180,0], [10,190,-10]]
-		self.list_negative_schedule_skeleton = [[0,90,0], [0,-180,0], [0,180,350], [0,180], [0,-180]]
+	def init_task_info(self, task_idx=0):
+		if task_idx==-1:
+			rotation_task = generate_rotation_task()
+		else:
+			rotation_task = get_rotation_task(task_idx)
+
+		self.positive_ratio = rotation_task.positive_ratio
+		self.list_positive_schedule_skeleton = rotation_task.pos
+		self.list_negative_schedule_skeleton = rotation_task.neg
+		# self.positive_ratio = 0.5
+		# self.list_positive_schedule_skeleton = [[0,90]]
+		# self.list_negative_schedule_skeleton = [[0,50], [0,-90], [0,-50], [0,30,-30]]
+		print('train:', self.train, ' -self supervised task', self.positive_ratio, self.list_positive_schedule_skeleton)
 
 	
 	def init_with_ucf101(self):
@@ -67,11 +79,12 @@ class Self_Supervised_Dataset(Dataset):
 		return self.get_item_rotation_task(idx)
 
 
-	def get_item_rotation_task(self,idx):
+	def get_item_rotation_task(self,idx, is_random=False):
 		if self.train:
 			item = self.train_split.iloc[idx]
 		else:
 			item = self.test_split.iloc[idx]
+		
 		# parsing for select a target frame dir 
 		video_name = item[0]
 		frames_dir = video_name.split("/").pop()
@@ -79,25 +92,37 @@ class Self_Supervised_Dataset(Dataset):
 		# randoly choose one of frame in the frames_dir
 		randomly_choosen_frame_file = random.choice(os.listdir(frames_dir))
 
-		# //
 		query_image_path = os.path.join(frames_dir, randomly_choosen_frame_file)
 
+		
+		if is_random:
+			#  positive:negative
+			flag_sample_positive = np.random.rand() < self.positive_ratio
+		else:
+			flag_sample_positive = idx> (len(self)//2)
 
-		flag_sample_positive = np.random.rand() < self.positive_ratio
+
 		if flag_sample_positive:
 			target_list_schedule_skelton = self.list_positive_schedule_skeleton
 		else:
 			target_list_schedule_skelton = self.list_negative_schedule_skeleton
 		
-		# choose 1 schedule_skeleton
-		schedule_skeleton = random.choice(target_list_schedule_skelton)
-		# augment
-		schedule = np.array(schedule_skeleton)
-		schedule = schedule + np.random.randn(*schedule.shape)
+		if is_random:
+			# choose 1 schedule_skeleton
+			schedule_skeleton = random.choice(target_list_schedule_skelton)
+			# augment
+			schedule = np.array(schedule_skeleton)
+			schedule = schedule + np.random.randn(*schedule.shape)
+		else:
+			# choose 1 schedule_skeleton
+			schedule_skeleton = target_list_schedule_skelton[0]
+			# augment
+			schedule = np.array(schedule_skeleton)
+			
 
 
 		pil_seq, detail_scheule = generate_rotating_video(query_image_path, schedule, self.video_len)	
-		save_pil_list(pil_seq)
+		# save_pil_list(pil_seq)
 
 		# transforms
 		if self.transforms_:
@@ -111,9 +136,9 @@ class Self_Supervised_Dataset(Dataset):
 			label_completeness = False
 
 
-
-
-		return video_tensor, torch.tensor(label_completeness)
+		action_class_tensor = torch.tensor(0)
+		label_tensor = torch.tensor(label_completeness)
+		return video_tensor, action_class_tensor, label_tensor
 
 def save_pil_list(pil_list, video_save_path='sample_vid.avi'):
 	resized_pil_list = [pil.resize((224,224))for pil in pil_list]
@@ -159,8 +184,8 @@ if __name__ == "__main__":
 
 
 	# train_dataset = RGBD_AC_Dataset("../../data/RGBD-AC", class_idx_filename=class_idx_filename, train=True, split='1')
-	train_dataset = Self_Supervised_Dataset('../data/ucf101', video_len=100, train=True, transforms_=data_transforms['train'])
-	test_dataset = Self_Supervised_Dataset('../data/ucf101', video_len=100, train=False, transforms_=data_transforms['val'])
+	train_dataset = Self_Supervised_Dataset('../data/ucf101', video_len=50, train=True, transforms_=data_transforms['train'])
+	test_dataset = Self_Supervised_Dataset('../data/ucf101', video_len=50, train=False, transforms_=data_transforms['val'])
 
 	# root_dir, split='1', data_len, video_len, task, train=True):
 	print(len(train_dataset))
@@ -176,13 +201,13 @@ if __name__ == "__main__":
 		
 		break
 
-	for data in test_dataloader:
-		batch_video = data['batch_video']
-		batch_label_completeness = data['batch_label_completeness']
+	# for data in test_dataloader:
+	# 	batch_video = data['batch_video']
+	# 	batch_label_completeness = data['batch_label_completeness']
 
-		print(batch_video.shape)
-		print(batch_label_completeness, batch_label_completeness.shape)
+	# 	print(batch_video.shape)
+	# 	print(batch_label_completeness, batch_label_completeness.shape)
 		
-		break
+	# 	break
 	
 
