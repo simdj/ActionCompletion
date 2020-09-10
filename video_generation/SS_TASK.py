@@ -15,8 +15,8 @@ schedule_set = list()
 
 schedule = edict()
 schedule.pos = [[0,180,0]]
-schedule.neg = [[0,90,0], [0,-180,0], [0,180,350], [0,180], [0,-180]]
-# schedule.neg = [[0,90,0]]
+schedule.neg = [[0,-180],[0,-180,0], [0,90,0],[0,179,350], [0,179]]
+# schedule.neg = [[0,10,0]]
 schedule_set.append(schedule)
 
 # schedule = edict()

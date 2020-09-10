@@ -32,6 +32,13 @@ def set_logging_defaults(logdir, args):
     logger.info(args)
 
 
+    for mode in ['train', 'val']:
+        logger = logging.getLogger(mode)
+        logger.addHandler(logging.FileHandler(os.path.join(logdir,mode+'.txt')))
+
+    
+
+
 def progress_bar(current, total, msg=None):
     global last_time, begin_time
     if current == 0:

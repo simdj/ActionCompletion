@@ -48,7 +48,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 
 
-N_GPU = 1
+# CONFIG.N_GPU = 4
 
 def make_batch(samples):
     inputs = [sample[0] for sample in samples]
@@ -118,7 +118,6 @@ def get_model(base_freeze, embedder_freeze):
     return model_to_return
 
 def get_model_loss_optim(task_type):
-    device = CONFIG.DEVICE
     
     # model
     model = None
@@ -135,22 +134,16 @@ def get_model_loss_optim(task_type):
     # frame_sequence_encoder.cuda()
     # completion_classifier.cuda() 
 
-
     # define loss_fn
     loss_fn = nn.BCELoss()
     # loss_fn = loss_fn.cuda()
-
-
-
 
     # define optim
     params_to_update = list(frame_sequence_encoder.parameters())+list(completion_classifier.parameters())
     # optimizer = optim.Adam(params_to_update, lr=CONFIG.OPTIMIZER.LR, weight_decay=CONFIG.OPTIMIZER.WD)
     optimizer = optim.SGD(params_to_update, lr=CONFIG.OPTIMIZER.LR, momentum=CONFIG.OPTIMIZER.MOMENTUM, weight_decay=CONFIG.OPTIMIZER.WD)
 
-
     return model,loss_fn, optimizer
-
 
 def save_checkpoint(ckpt_path, model, optimizer, epoch, performance):
     print("Saving..", ckpt_path)
@@ -178,9 +171,6 @@ def load_checkpoint(ckpt_path, model, optimizer):
     ckpt_rng_state = ckpt['rng_state']
     torch.set_rng_state(ckpt_rng_state)
     return model, optimizer, start_epoch, ckpt_performance, ckpt_rng_state
-
-
-
 
 
 def save_checkpoint_distributed(rank, world_size, ckpt_path, model, optimizer, epoch, performance):
@@ -223,30 +213,26 @@ def load_checkpoint_distributed(rank, world_size, ckpt_path, ddp_model, optimize
 
 
 
-def train_one_epoch(model, device, loader, optimizer, loss_fn, epoch):
+def train_one_epoch(rank, model, loader, optimizer, loss_fn, epoch):
     cnn_encoder, rnn_decoder = model
     cnn_encoder.train()
     rnn_decoder.train()
 
-    loss_list = []
-    acc_list = []
-    score_list = []
-
-    accum_loss = 0.0
-    accum_acc = 0.0
-    accum_mae = 0.0
+    res = edict()
+    res.loss_list, res.acc_list, res.score_list = [], [], []
+    res.accum_loss, res.accum_acc, res.accum_mae = 0.0, 0.0, 0.0
+    
     time_epoch_start = time.time()
     for batch_idx, data in enumerate(loader):
         time_batch_start = time.time()
-        # batch_frame_seq = data['frame_seq'].to(device)
+        
         batch_frame_seq = data['frame_seq'].cuda()
         batch_action = data['action']
         batch_moment = data['moment']
-        # print('batch_frame_seq.shape',batch_frame_seq.shape)
         complete_mask = batch_moment>0
-        # label = (batch_moment>0).float().to(device)
         label = (batch_moment>0).float().cuda()
         # data ready 
+
         optimizer.zero_grad()
         # feed forward
         cnn_feat_seq = cnn_encoder(batch_frame_seq)
@@ -265,35 +251,38 @@ def train_one_epoch(model, device, loader, optimizer, loss_fn, epoch):
         mae_score = torch.mean(err).detach().item()
 
 
-        accum_loss += loss_value
-        accum_acc += acc
-        accum_mae += mae_score
+        res.accum_loss += loss_value
+        res.accum_acc += acc
+        res.accum_mae += mae_score
         
-        loss_list.append(loss_value)
-        acc_list.append(acc)
-        score_list.append(mae_score)
+        res.loss_list.append(loss_value)
+        res.acc_list.append(acc)
+        res.score_list.append(mae_score)
 
-        progress_bar(batch_idx, len(loader), 'Loss: %.3f | MAE: %.3f | ACC: %.3f' 
-            % ( accum_loss/(batch_idx+1), accum_mae/(batch_idx+1), accum_acc/(batch_idx+1))
-        )
+        if rank==0:
+            progress_bar(batch_idx, len(loader), 'Loss: %.3f | MAE: %.3f | ACC: %.3f' 
+                % ( res.accum_loss/(batch_idx+1), res.accum_mae/(batch_idx+1), res.accum_acc/(batch_idx+1))
+            )
+    if rank==0:
+        logger = logging.getLogger('train')
+        logger.info('{} Epoch {}time: {:.2f} s.   LOSS: {:.2f} MAE: {:.2f} ACC: {:.2f}'.format(
+            rank, epoch, time.time() - time_epoch_start, np.mean(res.loss_list), np.mean(res.score_list), np.mean(res.acc_list)
+        ))
+    
 
-    logger = logging.getLogger('train')
-    logger.info('Epoch {} time: {:.2f} s.   LOSS: {:.2f} MAE: {:.2f} ACC: {:.2f}'.format(
-        epoch, time.time() - time_epoch_start, np.mean(loss_list), np.mean(score_list), np.mean(acc_list)
-    ))
-
-def val(model, device, loader, optimizer, loss_fn, epoch):
+def val(rank, model, loader, optimizer, loss_fn, epoch):
     cnn_encoder, rnn_decoder = model
     cnn_encoder.eval()
     rnn_decoder.eval()
 
-    loss_list = []
-    acc_list = []
-    score_list = []
+    res = edict()
+    res.loss_list = []
+    res.acc_list = []
+    res.score_list = []
 
-    val_loss = 0.0
-    val_acc = 0.0
-    val_mae = 0.0
+    res.val_loss = 0.0
+    res.val_acc = 0.0
+    res.val_mae = 0.0
     time_epoch_start = time.time()
     with torch.no_grad():
         for batch_idx, data in enumerate(loader):
@@ -304,8 +293,8 @@ def val(model, device, loader, optimizer, loss_fn, epoch):
             batch_moment = data['moment']
 
             complete_mask = batch_moment>0
-            # label = (batch_moment>0).float().to(device)
             label = (batch_moment>0).float().cuda()
+
             # data ready 
 
             # # # optimizer.zero_grad()
@@ -325,26 +314,26 @@ def val(model, device, loader, optimizer, loss_fn, epoch):
             
             mae_score = torch.mean(err).detach().item()
 
-            val_loss += loss_value
-            val_acc += acc
-            val_mae += mae_score
+            res.val_loss += loss_value
+            res.val_acc += acc
+            res.val_mae += mae_score
             
-            loss_list.append(loss_value)
-            acc_list.append(acc)
-            score_list.append(mae_score)
-
-            progress_bar(batch_idx, len(loader), 'Loss: %.3f | MAE: %.3f | ACC: %.3f' 
-                % ( val_loss/(batch_idx+1), val_mae/(batch_idx+1), val_acc/(batch_idx+1) )
-            )
+            res.loss_list.append(loss_value)
+            res.acc_list.append(acc)
+            res.score_list.append(mae_score)
+            if rank==0:
+                progress_bar(batch_idx, len(loader), 'Loss: %.3f | MAE: %.3f | ACC: %.3f' 
+                    % ( res.val_loss/(batch_idx+1), res.val_mae/(batch_idx+1), res.val_acc/(batch_idx+1) )
+                )
     
     # final log
-    
-    logger = logging.getLogger('val')
-    logger.info('Epoch {} time: {:.2f} s.   LOSS: {:.2f} MAE: {:.2f} ACC: {:.2f}'.format(
-        epoch, time.time() - time_epoch_start, np.mean(loss_list), np.mean(score_list), np.mean(acc_list)
-    ))
+    if rank==0:
+        logger = logging.getLogger('val')
+        logger.info('Epoch {} time: {:.2f} s.   LOSS: {:.2f} MAE: {:.2f} ACC: {:.2f}'.format(
+            epoch, time.time() - time_epoch_start, np.mean(res.loss_list), np.mean(res.score_list), np.mean(res.acc_list)
+        ))
 
-    final_score = np.mean(score_list) # MAE
+    final_score = np.mean(res.score_list) # MAE
 
     return final_score
 
@@ -359,33 +348,30 @@ def setup(rank, world_size):
 def cleanup():
     dist.destroy_process_group()
 
-
-
 def do_learning(rank):
     '''
     input: params: edict
     '''
-    # ------------------------------------------------------------------------------------------------------
-    # DDP
-    # ------------------------------------------------------------------------------------------------------
-
-    print(f"running DDP on rank {rank}")
-    setup(rank, world_size=N_GPU)
-    torch.cuda.set_device(rank)
-    
-    # ------------------------------------------------------------------------------------------------------
-    # configuration
-    # ------------------------------------------------------------------------------------------------------
     args = parse_args()
     set_config_with_args(args)    
+    # ------------------------------------------------------------------------------------------------------
+    # device configuration
+    # ------------------------------------------------------------------------------------------------------
+    print(f"running DDP on rank {rank}")    
+    setup(rank, world_size=CONFIG.N_GPU)
+    # TODO - cpu compability code needed
+    # CONFIG.DEVICE = torch.cuda.device(rank)
+    torch.cuda.set_device(rank)    
+    
 
-    print("=======basic=======")
-    print(CONFIG)
+    # ------------------------------------------------------------------------------------------------------
+    # learning configuration
+    # ------------------------------------------------------------------------------------------------------
     original_dataset = CONFIG.DATA.DATASET
     single_model_ckpt_path = './final_model_single.ckpt'
 
     params = edict()
-    params.task_type='basic'
+    params.task_type='self'
     params.pre_trained_ckpt_path = None
     params.save_ckpt_path = single_model_ckpt_path
 
@@ -395,13 +381,13 @@ def do_learning(rank):
     # model, loss, optimizier
     # ------------------------------------------------------------------------------------------------------  
     model, loss_fn, optimizer  = get_model_loss_optim(params.task_type)
-    # if params.pre_trained_ckpt_path:
-    #     model, optimizer, start_epoch, _, _ = load_checkpoint(params.pre_trained_ckpt_path, model, optimizer)
+    if params.pre_trained_ckpt_path:
+        model, optimizer, start_epoch, _, _ = load_checkpoint(params.pre_trained_ckpt_path, model, optimizer)
     
     frame_sequence_encoder, completion_classifier = model
     
     # ------------------------------------------------------------------------------------------------------
-    # DDP
+    # DDP model
     # ------------------------------------------------------------------------------------------------------
     frame_sequence_encoder.to(rank)
     completion_classifier.to(rank)
@@ -417,17 +403,22 @@ def do_learning(rank):
 
 
     # ------------------------------------------------------------------------------------------------------
-    # DDP
+    # DDP data loader
     # ------------------------------------------------------------------------------------------------------
-    train_dataset, test_dataset = get_dataset(data_dir='../data/ucf101', task_spec=None)
+    train_dataset, test_dataset = get_dataset(data_dir=CONFIG.DATA.DATA_DIR, task_spec=CONFIG.SELF_LEARN.TASK_SPEC)
+    print("train_dataset", train_dataset)
     
-    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, num_replicas=N_GPU, rank=rank, shuffle=True)
-    test_sampler  = torch.utils.data.distributed.DistributedSampler(test_dataset, num_replicas=N_GPU, rank=rank, shuffle=True)
+    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, 
+        num_replicas=CONFIG.N_GPU, rank=rank, shuffle=True)
+    test_sampler  = torch.utils.data.distributed.DistributedSampler(test_dataset, 
+        num_replicas=CONFIG.N_GPU, rank=rank, shuffle=True)
 
 
     batch_size = CONFIG.TRAIN.BATCH_SIZE
-    train_dataloader = DataLoader(train_dataset, batch_size=int(batch_size/N_GPU), collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, sampler=train_sampler, pin_memory=True)
-    test_dataloader  = DataLoader(test_dataset,  batch_size=int(batch_size/N_GPU), collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, sampler=test_sampler, pin_memory=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=int(batch_size/CONFIG.N_GPU), 
+        collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, sampler=train_sampler, pin_memory=True)
+    test_dataloader  = DataLoader(test_dataset,  batch_size=int(batch_size/CONFIG.N_GPU), 
+        collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, sampler=test_sampler, pin_memory=True)
 
     
     # ------------------------------------------------------------------------------------------------------
@@ -445,13 +436,14 @@ def do_learning(rank):
     params.test_dataloader = test_dataloader
 
     best_MAE = np.inf 
-    device = CONFIG.DEVICE
+    # device = CONFIG.DEVICE
     for epoch in range(CONFIG.TRAIN.NUM_EPOCH):
-        # train_sampler.set_epoch(epoch)
-        # test_sampler.set_epoch(epoch)
-        train_one_epoch(params.model, device, params.train_dataloader, params.optimizer, params.loss_fn, epoch)
+        train_sampler.set_epoch(epoch)
+        test_sampler.set_epoch(epoch)
+        train_one_epoch(rank, params.model, params.train_dataloader, params.optimizer, params.loss_fn, epoch)
 
-        current_MAE = val(params.model, device, params.test_dataloader, params.optimizer, params.loss_fn, epoch)
+
+        current_MAE = val(rank, params.model, params.test_dataloader, params.optimizer, params.loss_fn, epoch)
         
         # if current_MAE < best_MAE:
         #     save_checkpoint(params.save_ckpt_path, params.model, params.optimizer, epoch, best_MAE)
@@ -462,9 +454,6 @@ def do_learning(rank):
 
 
 if __name__ == "__main__":
-
-    args = parse_args()
-
     # if args.experiment_type =='basic':
     #     experiment_basic()
     # elif args.experiment_type =='finetune':
@@ -475,4 +464,7 @@ if __name__ == "__main__":
     #     whole_process()
     # else:
     #     raise ValueError("speicfy experiment type")
-    mp.spawn(do_learning, args=(), nprocs=N_GPU, join=True)
+    # mp.spawn(do_learning, args=(), nprocs=CONFIG.N_GPU, join=True)
+    args = parse_args()
+    set_config_with_args(args)
+    mp.spawn(do_learning, args=(), nprocs=4, join=True)

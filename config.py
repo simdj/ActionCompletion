@@ -27,13 +27,23 @@ import os
 from utils import progress_bar, set_logging_defaults
 
 import torch
+
 from datetime import datetime
+
+import numpy as np
+# reproducible
+torch.manual_seed(0)
+# np.random.seed(0) <-- force all rank proc to generate same batch....
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Video Classification')
     parser.add_argument('--experiment_type', type=str, default='transfer', help='basic/transfer')
 
     parser.add_argument('--data', type=str, default='self', help='ucf101/hmdb51/ugbd_ac/self')
+    parser.add_argument('--video_len', type=int, default=64, help='video length')
+
 
     parser.add_argument('--mode', type=str, default='train', help='train/test')
     parser.add_argument('--backbone', type=str, default='resnet50', help='vgg/resnet/c3d/r3d/r21d')
@@ -42,7 +52,7 @@ def parse_args():
     # parser.add_argument('--cl', type=int, default=16, help='clip length')
     parser.add_argument('--sgpu', type=int, default=0, help='GPU id')
     parser.add_argument('--ngpu', type=int, default=1, help='number of GPU')
-    parser.add_argument('--lr', type=float, default=1e-2, help='learning rate')
+    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--momentum', type=float, default=9e-1, help='momentum')
     parser.add_argument('--wd', type=float, default=1e-2, help='weight decay')
 
@@ -59,6 +69,7 @@ def parse_args():
     # parser.add_argument('--pf', type=int, default=100, help='print frequency every batch')
     # parser.add_argument('--seed', type=int, default=632, help='seed for initializing training.')
     parser.add_argument('--cnn_freeze', type=bool, default=True, help='freeze cnn encoder')
+    parser.add_argument('--decoder_rnn_layer', type=int, default=1, help='nb of decoder_rnn_layer')
 
     parser.add_argument('--memory_start_epoch', type=int, default=10, help='epoch when memory moddule is used')
     parser.add_argument('--ref_usage_cnt', type=int, default=5, help='number of reference memory to use')
@@ -83,6 +94,8 @@ def set_config_with_args(args):
     
     CONFIG.MODEL.BASE_MODEL.FREEZE = args.cnn_freeze
 
+    CONFIG.MODEL.DECODER.RNN_LAYER = args.decoder_rnn_layer
+
     CONFIG.OPTIMIZER.LR = args.lr
     CONFIG.OPTIMIZER.WD = args.wd
 
@@ -91,15 +104,20 @@ def set_config_with_args(args):
     CONFIG.TRAIN.BATCH_SIZE = args.bs
 
 
-
+    CONFIG.SELF_LEARN.VIDEO_LEN = args.video_len
+    
 
     use_cuda = torch.cuda.is_available()
     device = "cpu"
     if use_cuda:
-        print('gpu cnt', torch.cuda.device_count())
-        gpu_idx = args.sgpu
-        device = torch.device('cuda:'+str(gpu_idx))
-    CONFIG.DEVICE = device
+        # print('gpu cnt', torch.cuda.device_count())
+        CONFIG.USE_CUDA = True
+        CONFIG.N_GPU = torch.cuda.device_count()
+        
+    #     gpu_idx = args.sgpu
+    #     device = torch.device('cuda:'+str(gpu_idx))
+        
+    # CONFIG.DEVICE = device
 
     CONFIG.DATA.DATASET = args.data
 
@@ -110,9 +128,11 @@ CONFIG = edict()
 # ******************************************************************************
 # params
 # ******************************************************************************
-CONFIG.DEVICE = 'cpu'
+# CONFIG.DEVICE = 'cpu'
 CONFIG.NUM_WORKERS = 4
 CONFIG.IMAGE_SIZE = 224
+CONFIG.N_GPU = 1
+CONFIG.USE_CUDA = False
 
 # CONFIG.NUM_EPOCH = 20
 
@@ -121,6 +141,8 @@ CONFIG.IMAGE_SIZE = 224
 # ******************************************************************************
 CONFIG.DATA = edict()
 CONFIG.DATA.DATASET = 'ucf101'
+CONFIG.DATA.DATA_DIR = '../data/ucf101'
+CONFIG.test_data = None
 
 
 # # ******************************************************************************
@@ -142,7 +164,8 @@ CONFIG.TRAIN.BATCH_SIZE = 8
 # self-learning params
 # ******************************************************************************
 CONFIG.SELF_LEARN = edict()
-CONFIG.SELF_LEARN.VIDEO_LEN = 32
+CONFIG.SELF_LEARN.VIDEO_LEN = 16
+CONFIG.SELF_LEARN.TASK_SPEC = None
 
 
 
@@ -196,6 +219,10 @@ CONFIG.MODEL.CONVGRU_EMBEDDER_MODEL.USE_BN = True
 CONFIG.MODEL.CONV_EMBEDDER_MODEL.INPUT_CHANNEL_BASE=1024 #resnet50-> 1024, 
 
 CONFIG.MODEL.L2_REG_WEIGHT = 0.00001
+
+
+CONFIG.MODEL.DECODER = edict()
+CONFIG.MODEL.DECODER.RNN_LAYER = 1
 
 # ******************************************************************************
 # Optimizer params

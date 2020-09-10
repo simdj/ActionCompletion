@@ -54,7 +54,7 @@ class Self_Supervised_Dataset(Dataset):
 		# self.positive_ratio = 0.5
 		# self.list_positive_schedule_skeleton = [[0,90]]
 		# self.list_negative_schedule_skeleton = [[0,50], [0,-90], [0,-50], [0,30,-30]]
-		print('train:', self.train, ' -self supervised task', self.positive_ratio, self.list_positive_schedule_skeleton)
+		print('train:', self.train, ' -self supervised task', self.positive_ratio, self.list_positive_schedule_skeleton, self.list_negative_schedule_skeleton)
 
 	
 	def init_with_ucf101(self):
@@ -90,16 +90,15 @@ class Self_Supervised_Dataset(Dataset):
 		frames_dir = video_name.split("/").pop()
 		frames_dir = os.path.join(self.root_dir, 'jpegs_256', frames_dir)
 		# randoly choose one of frame in the frames_dir
-		randomly_choosen_frame_file = random.choice(os.listdir(frames_dir))
+		randomly_choosen_frame_file = random.choice(os.listdir(frames_dir)) # fully random
+		# randomly_choosen_frame_file = random.choice(os.listdir(frames_dir)[:1]) # deterministic
 
 		query_image_path = os.path.join(frames_dir, randomly_choosen_frame_file)
 
 		
-		if is_random:
-			#  positive:negative
-			flag_sample_positive = np.random.rand() < self.positive_ratio
-		else:
-			flag_sample_positive = idx> (len(self)//2)
+		#  positive:negative
+		flag_sample_positive = np.random.rand() < self.positive_ratio
+		
 
 
 		if flag_sample_positive:
@@ -107,22 +106,17 @@ class Self_Supervised_Dataset(Dataset):
 		else:
 			target_list_schedule_skelton = self.list_negative_schedule_skeleton
 		
-		if is_random:
-			# choose 1 schedule_skeleton
-			schedule_skeleton = random.choice(target_list_schedule_skelton)
-			# augment
-			schedule = np.array(schedule_skeleton)
-			schedule = schedule + np.random.randn(*schedule.shape)
-		else:
-			# choose 1 schedule_skeleton
-			schedule_skeleton = target_list_schedule_skelton[0]
-			# augment
-			schedule = np.array(schedule_skeleton)
-			
-
+		
+		# choose one  schedule_skeleton randomly
+		schedule_skeleton = random.choice(target_list_schedule_skelton)
+		# augment
+		schedule = np.array(schedule_skeleton)
+		# schedule = schedule + np.random.randn(*schedule.shape) # add some noise
+		
+		
 
 		pil_seq, detail_scheule = generate_rotating_video(query_image_path, schedule, self.video_len)	
-		# save_pil_list(pil_seq)
+		
 
 		# transforms
 		if self.transforms_:
@@ -134,7 +128,12 @@ class Self_Supervised_Dataset(Dataset):
 		label_completeness = True
 		if not flag_sample_positive:
 			label_completeness = False
+		if idx<100:
+			if label_completeness:
 
+				save_pil_list(pil_seq, 'pos.avi')
+			else:
+				save_pil_list(pil_seq, 'neg.avi')
 
 		action_class_tensor = torch.tensor(0)
 		label_tensor = torch.tensor(label_completeness)

@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F 
 
+from config import CONFIG
 
 
 class BaseLineClassifier(nn.Module):
@@ -19,9 +20,13 @@ class BaseLineClassifier(nn.Module):
 		self.hidden_dim = hidden_dim
 		self.use_mean = use_mean
 		self.one_layer = one_layer
+
 		
-		self.completionLSTM = nn.LSTM(embed_dim, hidden_dim,2)
+		
+		self.completionLSTM = nn.LSTM(embed_dim, hidden_dim, CONFIG.MODEL.DECODER.RNN_LAYER)
 		self.hidden2completion_score = MLP(hidden_dim, [hidden_dim, 1])
+		# self.hidden2completion_score = MLP(hidden_dim, [1])
+		
 		
 		# if self.one_layer:
 		# 	self.completionLSTM = nn.LSTM(embed_dim, hidden_dim)

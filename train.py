@@ -116,8 +116,8 @@ def get_dataloader(data_dir, task_spec=None):
     else:
         raise ValueError('Specify data(ucf101/hmdb51/rgbd-ac/self')
     
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, pin_memory=True)
-    test_dataloader  = DataLoader(test_dataset,  batch_size=batch_size, shuffle=True, collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, pin_memory=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS)
+    test_dataloader  = DataLoader(test_dataset,  batch_size=batch_size, shuffle=True, collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS)
 
     return train_dataloader, test_dataloader
 
@@ -191,6 +191,8 @@ def get_model_loss_optim(task_type):
 
 
 
+
+
 def train_one_epoch(model, device, loader, optimizer, loss_fn, epoch):
     cnn_encoder, rnn_decoder = model
     cnn_encoder.train()
@@ -204,8 +206,22 @@ def train_one_epoch(model, device, loader, optimizer, loss_fn, epoch):
     accum_acc = 0.0
     accum_mae = 0.0
     time_epoch_start = time.time()
+    
+    # if CONFIG.test_data == None:
+    #     for batch_idx, data in enumerate(loader):
+    #         CONFIG.test_data = data
+    #         break
+
+
+    
     for batch_idx, data in enumerate(loader):
+    # for batch_idx in range(10):
+    #     data = CONFIG.test_data
         time_batch_start = time.time()
+        
+
+
+
         batch_frame_seq = data['frame_seq'].to(device)
         # batch_frame_seq = data['frame_seq'].cuda()
         batch_action = data['action']
@@ -214,17 +230,18 @@ def train_one_epoch(model, device, loader, optimizer, loss_fn, epoch):
         complete_mask = batch_moment>0
         label = (batch_moment>0).float().to(device)
         # label = (batch_moment>0).float().cuda()
+
+
         # data ready 
         optimizer.zero_grad()
         # feed forward
         cnn_feat_seq = cnn_encoder(batch_frame_seq)
         pred = rnn_decoder(cnn_feat_seq)
-
+        
         # optimize
         loss = loss_fn(pred, label)
         loss.backward()
         optimizer.step()
-
 
         # log
         loss_value = loss.item()
@@ -233,6 +250,7 @@ def train_one_epoch(model, device, loader, optimizer, loss_fn, epoch):
         mae_score = torch.mean(err).detach().item()
 
 
+        a=[batch_idx, label.detach().cpu().numpy(), pred.detach().cpu().numpy(), err.detach().cpu().numpy()]
         accum_loss += loss_value
         accum_acc += acc
         accum_mae += mae_score
@@ -244,12 +262,13 @@ def train_one_epoch(model, device, loader, optimizer, loss_fn, epoch):
         progress_bar(batch_idx, len(loader), 'Loss: %.3f | MAE: %.3f | ACC: %.3f' 
             % ( accum_loss/(batch_idx+1), accum_mae/(batch_idx+1), accum_acc/(batch_idx+1))
         )
+
     
     logger = logging.getLogger('train')
     logger.info('Epoch {} time: {:.2f} s.   LOSS: {:.2f} MAE: {:.2f} ACC: {:.2f}'.format(
         epoch, time.time() - time_epoch_start, np.mean(loss_list), np.mean(score_list), np.mean(acc_list)
     ))
-
+    
 def val(model, device, loader, optimizer, loss_fn, epoch):
     cnn_encoder, rnn_decoder = model
     cnn_encoder.eval()
@@ -392,7 +411,9 @@ def experiment_self_learning():
     self_trained_model_ckpt_path = './self_model.ckpt'
     
     CONFIG.DATA.DATASET = 'self'
+    print("experiment_self_learning")
     print(CONFIG)
+    print("\n\n")
     do_self_learning(save_ckpt_path=self_trained_model_ckpt_path)
     
 
@@ -450,18 +471,18 @@ def whole_process():
 
 
 
-
 if __name__ == "__main__":
 
     args = parse_args()
-    if args.experiment_type =='basic':
-        experiment_basic()
-    elif args.experiment_type =='finetune':
-        experiment_finetune()
-    elif args.experiment_type =='self':
-        experiment_self_learning()
-    elif args.experiment_type =='whole':
-        whole_process()
-    else:
-        raise ValueError("speicfy experiment type")
+    # if args.experiment_type =='basic':
+    # experiment_basic()
+    # elif args.experiment_type =='finetune':
+    #     experiment_finetune()
+    # elif args.experiment_type =='self':
+    #     experiment_self_learning()
+    # elif args.experiment_type =='whole':
+    #     whole_process()
+    # else:
+    #     raise ValueError("speicfy experiment type")
+    experiment_self_learning()
     
