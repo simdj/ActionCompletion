@@ -57,14 +57,22 @@ source pytorch-env/bin/activate
 # python -m train_ddp --num_epoch 50 --bs 16 --lr 1e-1 --wd 1e-5 --log './log/' --decoder_rnn_layer 2 --video_len 32
 # python -m train_ddp --num_epoch 50 --bs 16 --lr 1e-2 --wd 1e-5 --log './log/' --decoder_rnn_layer 2 --video_len 32
 
-python -m train_ddp --num_epoch 100 --bs 8 --lr 1e-3 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64
-python -m train_ddp --num_epoch 100 --bs 8 --lr 1e-2 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64
-python -m train_ddp --num_epoch 100 --bs 4 --lr 1e-2 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64
-python -m train_ddp --num_epoch 100 --bs 4 --lr 1e-3 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64
+# python -m train_ddp --num_epoch 100 --bs 8 --lr 1e-3 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64
+# python -m train_ddp --num_epoch 100 --bs 8 --lr 1e-2 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64
+# python -m train_ddp --num_epoch 100 --bs 4 --lr 1e-2 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64
+# python -m train_ddp --num_epoch 100 --bs 4 --lr 1e-3 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64
 
-# python -m train_ddp --num_epoch 70 --bs 16 --lr 1e-1 --wd 1e-5 --log './log/' --decoder_rnn_layer 2 --video_len 64 bad
-# python -m train_ddp --num_epoch 70 --bs 8 --lr 1e-2 --wd 1e-5 --log './log/' --decoder_rnn_layer 2 --video_len 64
-# python -m train_ddp --num_epoch 70 --bs 4 --lr 1e-2 --wd 1e-5 --log './log/' --decoder_rnn_layer 2 --video_len 64
+
+# python -m train_ddp --data ucf101 --num_epoch 100 --bs 4 --lr 1e-2 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64 
+# python -m train_ddp --data ucf101 --num_epoch 100 --bs 4 --lr 1e-3 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64 
+# python -m train_ddp --data ucf101 --num_epoch 100 --bs 8 --lr 1e-2 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64 
+# python -m train_ddp --data ucf101 --num_epoch 100 --bs 8 --lr 1e-3 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64 
+
+python -m train_ddp --data ucf101 --num_epoch 100 --bs 16 --lr 1e-2 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64 
+python -m train_ddp --data ucf101 --num_epoch 100 --bs 16 --lr 1e-3 --wd 1e-5 --log './log/' --decoder_rnn_layer 1 --video_len 64 
+
+python -m train_ddp --data ucf101 --num_epoch 100 --bs 16 --lr 1e-2 --wd 1e-3 --log './log/' --decoder_rnn_layer 1 --video_len 64 
+python -m train_ddp --data ucf101 --num_epoch 100 --bs 16 --lr 1e-3 --wd 1e-3 --log './log/' --decoder_rnn_layer 1 --video_len 64 
 
 
 

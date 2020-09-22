@@ -19,6 +19,8 @@ from torchvision import transforms
 from PIL import Image
 
 
+from utils import *
+
 
 def extract_and_save_frames_from_video(video_path, frame_save_path):
 	video_data = skvideo.io.vread(video_path)
@@ -54,7 +56,7 @@ class UCF101Dataset(Dataset):
 	"""
 
 	def __init__(self, root_dir, split='1', class_idx_filename='completion_all_classInd.txt',
-	 train=True, transforms_=None, augments_=None, max_video_len=64, read_from_images=True):
+	 train=True, transforms_=None, augments_=None, max_video_len=64, read_from_images=True, class_num=10):
 		# self.label_category = get_ucf101_action_completeness_category()
 		self.root_dir  = root_dir
 		self.split = split
@@ -64,6 +66,8 @@ class UCF101Dataset(Dataset):
 		
 		self.max_video_len = max_video_len
 		self.read_from_images = read_from_images
+
+		self.class_num = class_num
 
 		self.toPIL = transforms.ToPILImage()
 		
@@ -197,8 +201,8 @@ class UCF101Dataset(Dataset):
 		else:
 			# TODO
 			video_tensor = torch.tensor(video_data)
-
-		return video_tensor, torch.tensor(class_idx), torch.tensor(int(moment))
+		class_one_hot_tensor = torch.nn.functional.one_hot(torch.LongTensor([class_idx]), self.class_num)
+		return video_tensor, class_one_hot_tensor , torch.tensor(int(moment))
 
 
 	def get_item_from_images(self, idx):
@@ -248,7 +252,9 @@ class UCF101Dataset(Dataset):
 			video_tensor = torch.stack(trans_video)
 		else:
 			video_tensor = torch.tensor(video_data)
-		return video_tensor, torch.tensor(class_idx), torch.tensor(int(moment))
+		
+		class_one_hot_tensor = torch.nn.functional.one_hot(torch.LongTensor([class_idx]), self.class_num)
+		return video_tensor, class_one_hot_tensor, torch.tensor(int(moment))
 
 
 
@@ -274,26 +280,26 @@ class UCF101Dataset(Dataset):
 	
 		
 
-def get_sample_idx_list(length, num_sampled):
-	interval = length//num_sampled
-	offset = np.random.randint(interval)
-	sampled_idx_list = [interval*idx+offset for idx in range(num_sampled)]
-	return sampled_idx_list
+# def get_sample_idx_list(length, num_sampled):
+# 	interval = length//num_sampled
+# 	offset = np.random.randint(interval)
+# 	sampled_idx_list = [interval*idx+offset for idx in range(num_sampled)]
+# 	return sampled_idx_list
 
 
 
 
-def make_batch(samples):
-	inputs = [sample[0] for sample in samples]
-	actions = [sample[1] for sample in samples]
-	moments = [sample[2] for sample in samples]
+# def make_batch(samples):
+# 	inputs = [sample[0] for sample in samples]
+# 	actions = [sample[1] for sample in samples]
+# 	moments = [sample[2] for sample in samples]
 
-	padded_inputs = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True)
-	return {
-		'frame_seq': padded_inputs.contiguous(),
-		'action': torch.stack(actions).contiguous(),
-		'moment': torch.stack(moments).contiguous()
-	}
+# 	padded_inputs = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True)
+# 	return {
+# 		'frame_seq': padded_inputs.contiguous(),
+# 		'action': torch.stack(actions).contiguous(),
+# 		'moment': torch.stack(moments).contiguous()
+# 	}
 
 
 def unittest_dataset_dataloader_videos():

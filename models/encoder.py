@@ -27,10 +27,10 @@ class IdentityLayer(nn.Module):
     def forward(self, x):
         return x
 class FrameSequenceEncoder(nn.Module):
-	def __init__(self, model_name='resnet', use_pretrained=True, base_feature_extract=True, embedder_feature_extract=False):
+	def __init__(self, model_name='resnet', use_pretrained=True, base_freeze=True, embedder_freeze=False):
 		super(FrameSequenceEncoder, self).__init__()
-		self.base_encoder = BaseEncoder(model_name, use_pretrained, base_feature_extract)
-		self.conv_embedder = ConvEmbedder(embedder_feature_extract)
+		self.base_encoder = BaseEncoder(model_name, use_pretrained, base_freeze)
+		self.conv_embedder = ConvEmbedder(embedder_freeze)
 
 
 	def forward(self, frame_seq, num_frames_of_context=2):
@@ -45,7 +45,7 @@ class FrameSequenceEncoder(nn.Module):
 
 
 class BaseEncoder(nn.Module):
-	def __init__(self, model_name='resnet', use_pretrained=True, feature_extract=True):
+	def __init__(self, model_name='resnet', use_pretrained=True, freeze=True):
 		super(BaseEncoder, self).__init__()
 		
 		self.input_size = 0
@@ -86,7 +86,7 @@ class BaseEncoder(nn.Module):
 		
 		
 		# feature layer freeze or not
-		if feature_extract:
+		if freeze:
 			for param in self.cnn_backbone.parameters():
 				param.requires_grad=False
 
@@ -202,9 +202,9 @@ def get_fc_layers(in_channel, fc_params):
 	
 
 class ConvEmbedder(nn.Module):
-	def __init__(self, feature_extract=False):
+	def __init__(self, freeze=False):
 		super(ConvEmbedder, self).__init__()
-		self.feature_extract = feature_extract
+		self.freeze = freeze
 
 		conv_params = CONFIG.MODEL.CONV_EMBEDDER_MODEL.CONV_LAYERS
 		fc_params = CONFIG.MODEL.CONV_EMBEDDER_MODEL.FC_LAYERS
@@ -232,7 +232,7 @@ class ConvEmbedder(nn.Module):
 		self.embedding_layer = nn.Linear(num_features_before_embedding, self.embedding_dim)
 
 		# feature layer freeze or not
-		if feature_extract:
+		if freeze:
 			for param in self.parameters():
 				param.requires_grad=False
 

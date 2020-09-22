@@ -17,6 +17,12 @@ import copy
 # from easydict import EasyDict as edict
 from torch.utils.data import DataLoader, Dataset
 
+import torch.multiprocessing as mp
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.optim.lr_scheduler import StepLR
+
+
 
 from utils import progress_bar, set_logging_defaults
 from vidaug import augmentors as va
@@ -25,12 +31,11 @@ from datasets.video_to_frames import UCF101Dataset
 from datasets.rgbd_ac import RGBD_AC_Dataset
 from datasets.self_supervised_data import Self_Supervised_Dataset
 
-from models.encoder import FrameSequenceEncoder
-from models.alignment import batch_get_alignment
-from models.memory_module import MemoryModule
-# from baseline import BaseLineClassifier
-from models.decoder import BaseLineClassifier
 
+from models.alignment import batch_get_alignment
+
+
+from models.algo import get_model
 
 
 
@@ -40,9 +45,7 @@ from easydict import EasyDict as edict
 import random
 
 
-import torch.multiprocessing as mp
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
+
 
 
 
@@ -87,17 +90,17 @@ def get_dataset(data_dir, task_spec=None):
     if CONFIG.DATA.DATASET=='ucf101':
         class_idx_filename = 'completion_all_classInd.txt'
         # class_idx_filename = 'completion_blowing_classInd.txt'        
-        train_dataset = UCF101Dataset(data_dir, class_idx_filename=class_idx_filename, train=True, transforms_=data_transforms["train"])
-        test_dataset  = UCF101Dataset(data_dir, class_idx_filename=class_idx_filename, train=False, transforms_=data_transforms["val"])
+        train_dataset = UCF101Dataset(data_dir, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM, train=True, transforms_=data_transforms["train"])
+        test_dataset  = UCF101Dataset(data_dir, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM, train=False, transforms_=data_transforms["val"])
     elif CONFIG.DATA.DATASET=='rgbd_ac':
         class_idx_filename = 'completion_all_classInd.txt'
         # class_idx_filename = 'completion_open_classInd.txt'
         # data_dir : ../data/RGBD-AC
-        train_dataset = RGBD_AC_Dataset(data_dir, class_idx_filename=class_idx_filename, train=True, transforms_=data_transforms["train"])
-        test_dataset  = RGBD_AC_Dataset(data_dir, class_idx_filename=class_idx_filename, train=False, transforms_=data_transforms["val"])
+        train_dataset = RGBD_AC_Dataset(data_dir, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM,  train=True, transforms_=data_transforms["train"])
+        test_dataset  = RGBD_AC_Dataset(data_dir, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM,  train=False, transforms_=data_transforms["val"])
     elif CONFIG.DATA.DATASET =='self':
-        train_dataset = Self_Supervised_Dataset(data_dir, video_len=CONFIG.SELF_LEARN.VIDEO_LEN, train=True, transforms_=data_transforms['train'])
-        test_dataset  = Self_Supervised_Dataset(data_dir, video_len=CONFIG.SELF_LEARN.VIDEO_LEN, train=False, transforms_=data_transforms['val'])
+        train_dataset = Self_Supervised_Dataset(data_dir, video_len=CONFIG.SELF_LEARN.VIDEO_LEN, train=True, class_num=CONFIG.DATA.ACTION_CLASS_NUM, transforms_=data_transforms['train'])
+        test_dataset  = Self_Supervised_Dataset(data_dir, video_len=CONFIG.SELF_LEARN.VIDEO_LEN, train=False, class_num=CONFIG.DATA.ACTION_CLASS_NUM, transforms_=data_transforms['val'])
     else:
         raise ValueError('Specify data(ucf101/hmdb51/rgbd-ac/self')
     
@@ -107,29 +110,30 @@ def get_dataset(data_dir, task_spec=None):
 
 
 
-def get_model(base_freeze, embedder_freeze):
-    model_name  = CONFIG.MODEL.BASE_MODEL.NETWORK
-    cnn_embed_dim =CONFIG.MODEL.CONV_EMBEDDER_MODEL.EMBEDDING_SIZE
+# def get_model(base_freeze, embedder_freeze):
+#     model_name  = CONFIG.MODEL.BASE_MODEL.NETWORK
+#     cnn_embed_dim =CONFIG.MODEL.CONV_EMBEDDER_MODEL.EMBEDDING_SIZE
 
-    frame_sequence_encoder = FrameSequenceEncoder(model_name=model_name, use_pretrained=True, base_feature_extract=base_freeze, embedder_feature_extract=embedder_freeze)
-    completion_classifier = BaseLineClassifier(embed_dim=cnn_embed_dim)
+#     frame_sequence_encoder = FrameSequenceEncoder(model_name=model_name, use_pretrained=True, base_feature_extract=base_freeze, embedder_feature_extract=embedder_freeze)
+#     completion_classifier = BaseLineClassifier(embed_dim=cnn_embed_dim)
 
-    model_to_return = [frame_sequence_encoder, completion_classifier]
-    return model_to_return
+#     model_to_return = [frame_sequence_encoder, completion_classifier]
+#     return model_to_return
 
 def get_model_loss_optim(task_type):
     
     # model
     model = None
-    if task_type=='self':
-        model = get_model(base_freeze=CONFIG.MODEL.BASE_MODEL.FREEZE, embedder_freeze=False)   
-    elif task_type=='basic':
-        model = get_model(base_freeze=CONFIG.MODEL.BASE_MODEL.FREEZE, embedder_freeze=False) 
-    elif task_type=='finetune':
-        model = get_model(base_freeze=True, embedder_freeze=False) 
-    else:
-        raise ValueError("[get_model_loss_optim] specify task_type, ")
-    frame_sequence_encoder, completion_classifier = model
+    # if task_type=='self':
+    #     model = get_model(base_freeze=CONFIG.MODEL.BASE_MODEL.FREEZE, embedder_freeze=False)   
+    # elif task_type=='basic':
+    #     model = get_model(base_freeze=CONFIG.MODEL.BASE_MODEL.FREEZE, embedder_freeze=False) 
+    # elif task_type=='finetune':
+    #     model = get_model(base_freeze=True, embedder_freeze=False) 
+    # else:
+    #     raise ValueError("[get_model_loss_optim] specify task_type, ")
+    # frame_sequence_encoder, completion_classifier = model
+    model = get_model(model_type='base', enc_conv_embedder_freeze=False)
     
     # frame_sequence_encoder.cuda()
     # completion_classifier.cuda() 
@@ -139,7 +143,8 @@ def get_model_loss_optim(task_type):
     # loss_fn = loss_fn.cuda()
 
     # define optim
-    params_to_update = list(frame_sequence_encoder.parameters())+list(completion_classifier.parameters())
+    params_to_update = list(model.parameters())
+    # list(frame_sequence_encoder.parameters())+list(completion_classifier.parameters())
     # optimizer = optim.Adam(params_to_update, lr=CONFIG.OPTIMIZER.LR, weight_decay=CONFIG.OPTIMIZER.WD)
     optimizer = optim.SGD(params_to_update, lr=CONFIG.OPTIMIZER.LR, momentum=CONFIG.OPTIMIZER.MOMENTUM, weight_decay=CONFIG.OPTIMIZER.WD)
 
@@ -147,11 +152,12 @@ def get_model_loss_optim(task_type):
 
 def save_checkpoint(ckpt_path, model, optimizer, epoch, performance):
     print("Saving..", ckpt_path)
-    cnn_encoder, rnn_decoder = model
+    # cnn_encoder, rnn_decoder = model
     state = {
         # 'config': config.samples,
-        'encoder': cnn_encoder.state_dict(),
-        'decoder': rnn_decoder.state_dict(),
+        'model': model.state_dict(),
+        # 'encoder': cnn_encoder.state_dict(),
+        # 'decoder': rnn_decoder.state_dict(),
         'optimizer': optimizer.state_dict(),
         'performance': performance,
         'epoch' : epoch,
@@ -162,9 +168,12 @@ def save_checkpoint(ckpt_path, model, optimizer, epoch, performance):
 def load_checkpoint(ckpt_path, model, optimizer):
     print("==> Resuming from ckpt ", ckpt_path)
     ckpt = torch.load(ckpt_path)
-    cnn_encoder, rnn_decoder = model
-    cnn_encoder.load_state_dict(ckpt['encoder'])
-    rnn_decoder.load_state_dict(ckpt['decoder'])
+    
+    # cnn_encoder, rnn_decoder = model
+    # cnn_encoder.load_state_dict(ckpt['encoder'])
+    # rnn_decoder.load_state_dict(ckpt['decoder'])
+    model.load_state_dict(ckpt['model'])
+
     optimizer.load_state_dict(ckpt['optimizer'])
     start_epoch = ckpt['epoch']
     ckpt_performance = ckpt['performance']
@@ -178,11 +187,12 @@ def save_checkpoint_distributed(rank, world_size, ckpt_path, model, optimizer, e
     print(f"Running save_checkpoint_distributed() on rank {rank}.")
     if rank ==0:
         print("Saving..", ckpt_path)
-        cnn_encoder, rnn_decoder = model
+        # cnn_encoder, rnn_decoder = model
         state = {
             # 'config': config.samples,
-            'encoder': cnn_encoder.state_dict(),
-            'decoder': rnn_decoder.state_dict(),
+            # 'encoder': cnn_encoder.state_dict(),
+            # 'decoder': rnn_decoder.state_dict(),
+            'model': model.state_dict(),
             'optimizer': optimizer.state_dict(),
             'performance': performance,
             'epoch' : epoch,
@@ -200,9 +210,12 @@ def load_checkpoint_distributed(rank, world_size, ckpt_path, ddp_model, optimize
     map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}  # ddp
 
     ckpt = torch.load(ckpt_path, map_location=map_location) # ddp
-    cnn_encoder, rnn_decoder = ddp_model
-    cnn_encoder.load_state_dict(ckpt['encoder'])
-    rnn_decoder.load_state_dict(ckpt['decoder'])
+    
+    # cnn_encoder, rnn_decoder = ddp_model
+    # cnn_encoder.load_state_dict(ckpt['encoder'])
+    # rnn_decoder.load_state_dict(ckpt['decoder'])
+    ddp_model.load_state_dict(ckpt['model'])
+
     optimizer.load_state_dict(ckpt['optimizer'])
     start_epoch = ckpt['epoch']
     ckpt_performance = ckpt['performance']
@@ -214,29 +227,33 @@ def load_checkpoint_distributed(rank, world_size, ckpt_path, ddp_model, optimize
 
 
 def train_one_epoch(rank, model, loader, optimizer, loss_fn, epoch):
-    cnn_encoder, rnn_decoder = model
-    cnn_encoder.train()
-    rnn_decoder.train()
+    # cnn_encoder, rnn_decoder = model
+    # cnn_encoder.train()
+    # rnn_decoder.train()
+    model.train()
 
     res = edict()
     res.loss_list, res.acc_list, res.score_list = [], [], []
-    res.accum_loss, res.accum_acc, res.accum_mae = 0.0, 0.0, 0.0
+    res.sum_loss, res.sum_acc, res.sum_mae = 0.0, 0.0, 0.0
     
     time_epoch_start = time.time()
     for batch_idx, data in enumerate(loader):
         time_batch_start = time.time()
         
         batch_frame_seq = data['frame_seq'].cuda()
-        batch_action = data['action']
+        batch_action = data['action'].cuda()
         batch_moment = data['moment']
         complete_mask = batch_moment>0
         label = (batch_moment>0).float().cuda()
         # data ready 
 
+
         optimizer.zero_grad()
         # feed forward
-        cnn_feat_seq = cnn_encoder(batch_frame_seq)
-        pred = rnn_decoder(cnn_feat_seq)
+        pred = model(batch_frame_seq, batch_action)
+
+        # cnn_feat_seq = cnn_encoder(batch_frame_seq)
+        # pred = rnn_decoder(cnn_feat_seq, batch_action)
 
         # optimize
         loss = loss_fn(pred, label)
@@ -251,9 +268,9 @@ def train_one_epoch(rank, model, loader, optimizer, loss_fn, epoch):
         mae_score = torch.mean(err).detach().item()
 
 
-        res.accum_loss += loss_value
-        res.accum_acc += acc
-        res.accum_mae += mae_score
+        res.sum_loss += loss_value
+        res.sum_acc += acc
+        res.sum_mae += mae_score
         
         res.loss_list.append(loss_value)
         res.acc_list.append(acc)
@@ -261,7 +278,7 @@ def train_one_epoch(rank, model, loader, optimizer, loss_fn, epoch):
 
         if rank==0:
             progress_bar(batch_idx, len(loader), 'Loss: %.3f | MAE: %.3f | ACC: %.3f' 
-                % ( res.accum_loss/(batch_idx+1), res.accum_mae/(batch_idx+1), res.accum_acc/(batch_idx+1))
+                % ( res.sum_loss/(batch_idx+1), res.sum_mae/(batch_idx+1), res.sum_acc/(batch_idx+1))
             )
     if rank==0:
         logger = logging.getLogger('train')
@@ -271,25 +288,22 @@ def train_one_epoch(rank, model, loader, optimizer, loss_fn, epoch):
     
 
 def val(rank, model, loader, optimizer, loss_fn, epoch):
-    cnn_encoder, rnn_decoder = model
-    cnn_encoder.eval()
-    rnn_decoder.eval()
+    # cnn_encoder, rnn_decoder = model
+    # cnn_encoder.eval()
+    # rnn_decoder.eval()
+    model.eval()
 
     res = edict()
-    res.loss_list = []
-    res.acc_list = []
-    res.score_list = []
+    res.loss_list, res.acc_list, res.score_list = [], [], []
+    res.sum_loss, res.sum_acc, res.sum_mae = 0.0, 0.0, 0.0
 
-    res.val_loss = 0.0
-    res.val_acc = 0.0
-    res.val_mae = 0.0
     time_epoch_start = time.time()
     with torch.no_grad():
         for batch_idx, data in enumerate(loader):
             time_batch_start = time.time()
             # batch_frame_seq = data['frame_seq'].to(device)
             batch_frame_seq = data['frame_seq'].cuda()
-            batch_action = data['action']
+            batch_action = data['action'].cuda()
             batch_moment = data['moment']
 
             complete_mask = batch_moment>0
@@ -299,8 +313,9 @@ def val(rank, model, loader, optimizer, loss_fn, epoch):
 
             # # # optimizer.zero_grad()
             # feed forward
-            cnn_feat_seq = cnn_encoder(batch_frame_seq)
-            pred = rnn_decoder(cnn_feat_seq)
+            pred = model(batch_frame_seq, batch_action)
+            # cnn_feat_seq = cnn_encoder(batch_frame_seq)
+            # pred = rnn_decoder(cnn_feat_seq, batch_action)
 
             loss = loss_fn(pred, label)
 
@@ -314,16 +329,16 @@ def val(rank, model, loader, optimizer, loss_fn, epoch):
             
             mae_score = torch.mean(err).detach().item()
 
-            res.val_loss += loss_value
-            res.val_acc += acc
-            res.val_mae += mae_score
-            
+            res.sum_loss += loss_value
+            res.sum_acc += acc
+            res.sum_mae += mae_score
+
             res.loss_list.append(loss_value)
             res.acc_list.append(acc)
             res.score_list.append(mae_score)
             if rank==0:
                 progress_bar(batch_idx, len(loader), 'Loss: %.3f | MAE: %.3f | ACC: %.3f' 
-                    % ( res.val_loss/(batch_idx+1), res.val_mae/(batch_idx+1), res.val_acc/(batch_idx+1) )
+                    % ( res.sum_loss/(batch_idx+1), res.sum_mae/(batch_idx+1), res.sum_acc/(batch_idx+1) )
                 )
     
     # final log
@@ -384,23 +399,31 @@ def do_learning(rank):
     if params.pre_trained_ckpt_path:
         model, optimizer, start_epoch, _, _ = load_checkpoint(params.pre_trained_ckpt_path, model, optimizer)
     
-    frame_sequence_encoder, completion_classifier = model
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
+
+    # frame_sequence_encoder, completion_classifier = model
     
     # ------------------------------------------------------------------------------------------------------
     # DDP model
     # ------------------------------------------------------------------------------------------------------
-    frame_sequence_encoder.to(rank)
-    completion_classifier.to(rank)
+    # frame_sequence_encoder.to(rank)
+    # completion_classifier.to(rank)
 
-    frame_sequence_encoder = torch.nn.SyncBatchNorm.convert_sync_batchnorm(frame_sequence_encoder)
-    completion_classifier = torch.nn.SyncBatchNorm.convert_sync_batchnorm(completion_classifier)
+    # frame_sequence_encoder = torch.nn.SyncBatchNorm.convert_sync_batchnorm(frame_sequence_encoder)
+    # completion_classifier = torch.nn.SyncBatchNorm.convert_sync_batchnorm(completion_classifier)
 
-    DDP_frame_sequence_encoder = DDP(frame_sequence_encoder, device_ids=[rank], find_unused_parameters=True)
-    DDP_completion_classifier = DDP(completion_classifier, device_ids=[rank], find_unused_parameters=True)
+    # DDP_frame_sequence_encoder = DDP(frame_sequence_encoder, device_ids=[rank], find_unused_parameters=True)
+    # DDP_completion_classifier = DDP(completion_classifier, device_ids=[rank], find_unused_parameters=True)
 
     
-    model = [DDP_frame_sequence_encoder, DDP_completion_classifier]
+    # model = [DDP_frame_sequence_encoder, DDP_completion_classifier]
 
+
+
+    model.to(rank)
+    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    DDP_model = DDP(model, device_ids=[rank], find_unused_parameters=True)
+    model = DDP_model
 
     # ------------------------------------------------------------------------------------------------------
     # DDP data loader
@@ -427,26 +450,19 @@ def do_learning(rank):
 
 
     # fill up params
-    params.model = model
-    
-    params.loss_fn = loss_fn
-    params.optimizer = optimizer
-
-    params.train_dataloader = train_dataloader
-    params.test_dataloader = test_dataloader
+    # 
 
     best_MAE = np.inf 
     # device = CONFIG.DEVICE
     for epoch in range(CONFIG.TRAIN.NUM_EPOCH):
         train_sampler.set_epoch(epoch)
         test_sampler.set_epoch(epoch)
-        train_one_epoch(rank, params.model, params.train_dataloader, params.optimizer, params.loss_fn, epoch)
-
-
-        current_MAE = val(rank, params.model, params.test_dataloader, params.optimizer, params.loss_fn, epoch)
+        train_one_epoch(rank, model, train_dataloader, optimizer, loss_fn, epoch)
+        current_MAE = val(rank, model, test_dataloader, optimizer, loss_fn, epoch)
+        lr_scheduler.step()
         
         # if current_MAE < best_MAE:
-        #     save_checkpoint(params.save_ckpt_path, params.model, params.optimizer, epoch, best_MAE)
+        #     save_checkpoint(save_ckpt_path, model, optimizer, epoch, best_MAE)
         #     best_MAE = current_MAE
 
 

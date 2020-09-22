@@ -15,8 +15,71 @@ class BaseLineClassifier(nn.Module):
 	output : scalar 0~1: non-complete / complete
 	
 	"""
-	def __init__(self, embed_dim=128, hidden_dim=32, use_mean=False, one_layer=False):
+	def __init__(self, action_class_num=1, embed_dim=128, hidden_dim=32, use_mean=False, one_layer=False):
 		super(BaseLineClassifier, self).__init__()
+		self.action_class_dim = action_class_num
+		self.embed_dim = embed_dim
+		self.hidden_dim = hidden_dim
+		self.use_mean = use_mean
+		self.one_layer = one_layer
+
+		
+		lstm_input_dim = self.embed_dim
+		self.completionLSTM = nn.LSTM(lstm_input_dim, hidden_dim, CONFIG.MODEL.DECODER.RNN_LAYER)
+
+		mlp_input_dim = hidden_dim + self.action_class_dim
+		self.hidden2completion_score = MLP(mlp_input_dim, [hidden_dim, 1])
+		
+		# print(self.completionLSTM)
+		# print(self.hidden2completion_score)
+
+	def forward(self, seq_emb_frame, action_class_one_hot):
+		# seq_emb_frame - [batch_size x seq_len x embed_dim]
+		# action_class_one_hot - [batch_size x 1 x action_class_dim]
+		
+		batch_size = seq_emb_frame.shape[0]
+		seq_len = seq_emb_frame.shape[1]
+		
+		lstm_out, (ht,ct) = self.completionLSTM(seq_emb_frame)
+		# lstm_out : (batch_size x seq_len x hidden_dim)	
+
+		# action_class_one_hot = F.one_hot(action_class, self.action_class_dim)
+		# action_class_one_hot : (batch_size x self.action_class_dim)
+		action_class_one_hot_seq = action_class_one_hot.repeat(1,seq_len,1).float()
+		# action_class_one_hot_seq : (batch_size x seq_len x self.action_class_dim)
+
+		
+		
+		# append 'action class one hot vector'
+		completion_classifier_input = torch.cat([lstm_out, action_class_one_hot_seq], dim=2)
+		# completion_classifier_input : (batch_size x seq_len x (hidden_dim+self.action_class_dim))
+
+				
+		completion_score = self.hidden2completion_score(completion_classifier_input)
+		# completion_score: (batch_size x seq_len x1)
+		completion_score = completion_score.squeeze(2)
+		# completion_score: (batch_size x seq_len)
+		
+		if self.use_mean:
+			video_level_complete_pred = torch.sigmoid(torch.mean(completion_score, dim=1)) # == torch.sum(score*uniform_dist, dim=1)
+		else:
+			# consider last step only
+			video_level_complete_pred = torch.sigmoid(completion_score[:,-1]) # == torch.sum(score*uniform_dist, dim=1)
+		final_score = video_level_complete_pred
+	
+		return final_score
+
+
+class DeprecatedBaseLineClassifier(nn.Module):
+	"""
+	classifier seq(emb(frame)) - > completeness	
+	# # <weakly-supervised setting>
+	input: seq of embedd_feature
+	output : scalar 0~1: non-complete / complete
+	
+	"""
+	def __init__(self, embed_dim=128, hidden_dim=32, use_mean=False, one_layer=False):
+		super(DeprecatedBaseLineClassifier, self).__init__()
 		self.hidden_dim = hidden_dim
 		self.use_mean = use_mean
 		self.one_layer = one_layer

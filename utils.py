@@ -2,6 +2,8 @@ import os, logging
 import sys
 import time
 import math
+import numpy as np
+import torch
 
 _, term_width = os.popen('stty size', 'r').read().split()
 term_width = int(term_width)
@@ -113,5 +115,52 @@ def format_time(seconds):
     if f == '':
         f = '0ms'
     return f
+
+
+# def one_hot_embedding(labels, num_classes):
+#     """Embedding labels to one-hot form.
+
+#     Args:
+#       labels: (LongTensor) class labels, sized [N,].
+#       num_classes: (int) number of classes.
+
+#     Returns:
+#       (tensor) encoded labels, sized [N, #classes].
+#     """
+
+#     # print(labels, type(labels))
+#     # print(labels, type(labels))
+#     y = torch.eye(num_classes) 
+#     a=y[labels]
+    
+#     return a
+
+
+
+
+
+
+    
+        
+
+def get_sample_idx_list(length, num_sampled):
+    interval = length//num_sampled
+    offset = np.random.randint(interval)
+    sampled_idx_list = [interval*idx+offset for idx in range(num_sampled)]
+    return sampled_idx_list
+
+
+
+def make_batch(samples):
+    inputs = [sample[0] for sample in samples]
+    actions = [sample[1] for sample in samples]
+    moments = [sample[2] for sample in samples]
+
+    padded_inputs = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True)
+    return {
+        'frame_seq': padded_inputs.contiguous(),
+        'action': torch.stack(actions).contiguous(),
+        'moment': torch.stack(moments).contiguous()
+    }
 
 

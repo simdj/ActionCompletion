@@ -24,8 +24,10 @@ import cv2
 from video_generation.video_generator import generate_rotating_video
 from video_generation.SS_TASK import generate_rotation_task, get_rotation_task
 
+from utils import *
+
 class Self_Supervised_Dataset(Dataset):
-	def __init__(self, root_dir, split='1', train=True, video_len=100, task_idx=0, transforms_=None):
+	def __init__(self, root_dir, split='1', train=True, video_len=100, task_idx=0, transforms_=None, class_num=10):
 		self.root_dir = root_dir
 		self.split = split
 		self.train = train
@@ -34,6 +36,7 @@ class Self_Supervised_Dataset(Dataset):
 		self.task_idx = task_idx 
 
 		self.transforms_ = transforms_
+		self.class_num = class_num
 
 		self.init_with_ucf101()
 
@@ -130,14 +133,15 @@ class Self_Supervised_Dataset(Dataset):
 			label_completeness = False
 		if idx<100:
 			if label_completeness:
-
 				save_pil_list(pil_seq, 'pos.avi')
 			else:
 				save_pil_list(pil_seq, 'neg.avi')
 
-		action_class_tensor = torch.tensor(0)
+		class_idx = torch.tensor([0]).long()		
+		class_one_hot_tensor = torch.nn.functional.one_hot(class_idx, self.class_num)
+		
 		label_tensor = torch.tensor(label_completeness)
-		return video_tensor, action_class_tensor, label_tensor
+		return video_tensor, class_one_hot_tensor, label_tensor
 
 def save_pil_list(pil_list, video_save_path='sample_vid.avi'):
 	resized_pil_list = [pil.resize((224,224))for pil in pil_list]
@@ -153,15 +157,15 @@ def save_pil_list(pil_list, video_save_path='sample_vid.avi'):
 	# cv2.imwrite('cv2.png', cv2_list[0])
 
 
-def make_batch(samples):
-	batch_video = [sample[0] for sample in samples]
-	batch_label_completeness = [sample[1] for sample in samples]
+# def make_batch(samples):
+# 	batch_video = [sample[0] for sample in samples]
+# 	batch_label_completeness = [sample[1] for sample in samples]
 
-	# padded_inputs = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True)
-	return {
-		'batch_video': torch.stack(batch_video).contiguous(),
-		'batch_label_completeness': torch.stack(batch_label_completeness).contiguous()
-	}
+# 	# padded_inputs = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True)
+# 	return {
+# 		'batch_video': torch.stack(batch_video).contiguous(),
+# 		'batch_label_completeness': torch.stack(batch_label_completeness).contiguous()
+# 	}
 
 
 
