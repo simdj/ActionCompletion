@@ -19,6 +19,7 @@ from torchvision import transforms
 from PIL import Image
 
 
+
 from utils import *
 
 
@@ -91,7 +92,7 @@ class UCF101Dataset(Dataset):
 		completion_annotation = completion_annotation[annotation_action_pd.isin(interested_action_list)]
 
 		self.class_set = self.class_label2idx.values
-		print('class set', self.class_set)
+		# print('class set', self.class_set)
 		
 
 		
@@ -145,7 +146,16 @@ class UCF101Dataset(Dataset):
 			return self.get_item_from_images(idx)
 		else:
 			return self.get_item_from_videos(idx)
-		
+	
+	# def get_video_path(self, idx):
+	# 	if self.train:
+	# 		item = self.train_split.iloc[idx]
+	# 	else:
+	# 		item = self.test_split.iloc[idx]
+
+	# 	video_name = item[0]
+	# 	return video_name
+
 
 	def get_item_from_videos(self, idx):
 		"""
@@ -225,6 +235,7 @@ class UCF101Dataset(Dataset):
 		height, width, channel = template_image_data.shape
 		# load
 		num_sampled = self.max_video_len
+
 		sample_idx_list = get_sample_idx_list(max(length, num_sampled),num_sampled)
 
 		video_data = np.zeros([self.max_video_len, height, width, channel], dtype=np.uint8)
@@ -254,7 +265,7 @@ class UCF101Dataset(Dataset):
 			video_tensor = torch.tensor(video_data)
 		
 		class_one_hot_tensor = torch.nn.functional.one_hot(torch.LongTensor([class_idx]), self.class_num)
-		return video_tensor, class_one_hot_tensor, torch.tensor(int(moment))
+		return video_tensor, class_one_hot_tensor, torch.tensor(int(moment)), video_name
 
 
 
@@ -280,26 +291,6 @@ class UCF101Dataset(Dataset):
 	
 		
 
-# def get_sample_idx_list(length, num_sampled):
-# 	interval = length//num_sampled
-# 	offset = np.random.randint(interval)
-# 	sampled_idx_list = [interval*idx+offset for idx in range(num_sampled)]
-# 	return sampled_idx_list
-
-
-
-
-# def make_batch(samples):
-# 	inputs = [sample[0] for sample in samples]
-# 	actions = [sample[1] for sample in samples]
-# 	moments = [sample[2] for sample in samples]
-
-# 	padded_inputs = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True)
-# 	return {
-# 		'frame_seq': padded_inputs.contiguous(),
-# 		'action': torch.stack(actions).contiguous(),
-# 		'moment': torch.stack(moments).contiguous()
-# 	}
 
 
 def unittest_dataset_dataloader_videos():
@@ -444,3 +435,5 @@ if __name__ == "__main__":
 	# print('videos', time.time()-start)
 
 	unittest_dataset_dataloader_images()	
+
+	# print(get_sample_idx_list(5,2))

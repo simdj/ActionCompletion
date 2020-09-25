@@ -74,7 +74,7 @@ class RGBD_AC_Dataset(Dataset):
 		completion_annotation = completion_annotation[annotation_action_pd.isin(interested_action_list)]
 
 		self.class_set = completion_annotation['class_idx'].unique()
-		print('class set', self.class_set)
+		# print('class set', self.class_set)
 		
 	
 		# [split] 0: drop / 1:train / 2:test
@@ -151,7 +151,7 @@ class RGBD_AC_Dataset(Dataset):
 		else:
 			video_tensor = torch.tensor(video_data)
 		class_one_hot_tensor = torch.nn.functional.one_hot(torch.LongTensor([class_idx]), self.class_num)
-		return video_tensor, class_one_hot_tensor, torch.tensor(int(moment))
+		return video_tensor, class_one_hot_tensor, torch.tensor(int(moment)), video_name
 
 
 

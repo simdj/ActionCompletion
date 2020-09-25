@@ -141,7 +141,7 @@ class Self_Supervised_Dataset(Dataset):
 		class_one_hot_tensor = torch.nn.functional.one_hot(class_idx, self.class_num)
 		
 		label_tensor = torch.tensor(label_completeness)
-		return video_tensor, class_one_hot_tensor, label_tensor
+		return video_tensor, class_one_hot_tensor, label_tensor, video_name
 
 def save_pil_list(pil_list, video_save_path='sample_vid.avi'):
 	resized_pil_list = [pil.resize((224,224))for pil in pil_list]

@@ -24,67 +24,103 @@ from easydict import EasyDict as edict
 import logging
 import argparse
 import os
-from utils import progress_bar, set_logging_defaults
+from datetime import datetime
 
 import torch
 
-from datetime import datetime
+
 
 import numpy as np
 # reproducible
-torch.manual_seed(0)
+# torch.manual_seed(0)
 # np.random.seed(0) <-- force all rank proc to generate same batch....
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Video Classification')
-    parser.add_argument('--experiment_type', type=str, default='transfer', help='basic/transfer')
-
-    parser.add_argument('--data', type=str, default='self', help='ucf101/hmdb51/ugbd_ac/self')
-    parser.add_argument('--video_len', type=int, default=64, help='video length')
-
+    parser.add_argument('--model_type', type=str, default='base', help='base/base_memory')
 
     parser.add_argument('--mode', type=str, default='train', help='train/test')
-    parser.add_argument('--backbone', type=str, default='resnet50', help='vgg/resnet/c3d/r3d/r21d')
-    parser.add_argument('--dataset', type=str, default='ucf101', help='ucf101/hmdb51')
-    parser.add_argument('--split', type=str, default='1', help='dataset split')
-    # parser.add_argument('--cl', type=int, default=16, help='clip length')
-    parser.add_argument('--sgpu', type=int, default=0, help='GPU id')
-    parser.add_argument('--ngpu', type=int, default=1, help='number of GPU')
-    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
-    parser.add_argument('--momentum', type=float, default=9e-1, help='momentum')
-    parser.add_argument('--wd', type=float, default=1e-2, help='weight decay')
+    # input output
+    parser.add_argument('--model_save_ckpt', type=str, default='', help='model save checkpoint path')
+    parser.add_argument('--model_load_ckpt', type=str, default='',help='model load checkpoint path')
+    parser.add_argument('--memory_save_ckpt', type=str, default='', help='memory save checkpoint path')
+    parser.add_argument('--memory_load_ckpt', type=str, default='',help='memory load checkpoint path')
+
+    parser.add_argument('--result_csv', type=str, default='',help='result_csv')
 
     parser.add_argument('--log', type=str, default='./log/', help='log directory')
     parser.add_argument('--log_file_name', type=str, default='log.csv', help='log file name')    
-    parser.add_argument('--ckpt', type=str, help='checkpoint path')
-    # parser.add_argument('--desp', type=str, help='additional description')
-    parser.add_argument('--num_epoch', type=int, default=100, help='number of total epochs to run')
-    parser.add_argument('--start-epoch', type=int, default=1, help='manual epoch number (useful on restarts)')
     
-    parser.add_argument('--bs', type=int, default=64, help='mini-batch size')
-    
-    parser.add_argument('--num_workers', type=int, default=8, help='number of data loading workers')
-    # parser.add_argument('--pf', type=int, default=100, help='print frequency every batch')
-    # parser.add_argument('--seed', type=int, default=632, help='seed for initializing training.')
+
+
+    # data category
+    parser.add_argument('--data', type=str, default='self', help='ucf101/hmdb51/rgbd_ac')
+    # parser.add_argument('--dataset', type=str, default='ucf101', help='ucf101/hmdb51')
+    parser.add_argument('--data_dir_root', type=str, default='../data', help='data root dir containing ucf101, hmdb51, rgbd_ac')
+
+    parser.add_argument('--split', type=str, default='1', help='dataset split')
+    # dataset spec
+    parser.add_argument('--video_len', type=int, default=64, help='video length')
+
+
+    # model - enc, dec
+    parser.add_argument('--backbone', type=str, default='resnet50', help='vgg/resnet/c3d/r3d/r21d')
     parser.add_argument('--cnn_freeze', type=bool, default=True, help='freeze cnn encoder')
     parser.add_argument('--decoder_rnn_layer', type=int, default=1, help='nb of decoder_rnn_layer')
 
+    # model - memory module
     parser.add_argument('--memory_start_epoch', type=int, default=10, help='epoch when memory moddule is used')
-    parser.add_argument('--ref_usage_cnt', type=int, default=5, help='number of reference memory to use')
+    parser.add_argument('--ref_usage_cnt', type=int, default=10, help='number of reference memory to use')
+    
+    # device
+    parser.add_argument('--sgpu', type=int, default=0, help='GPU id')
+    parser.add_argument('--ngpu', type=int, default=1, help='number of GPU')
+
+    # learning hyper param
+    parser.add_argument('--optimizer', type=str, default='sgd', help='optimizer adam/sgd')
+    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
+    parser.add_argument('--momentum', type=float, default=9e-1, help='momentum')
+    parser.add_argument('--wd', type=float, default=1e-2, help='weight decay')
+    parser.add_argument('--num_epoch', type=int, default=100, help='number of total epochs to run')
+    # parser.add_argument('--start-epoch', type=int, default=1, help='manual epoch number (useful on restarts)')
+    
+    parser.add_argument('--bs', type=int, default=64, help='mini-batch size')
+    
+    # etc - speed
+    parser.add_argument('--num_workers', type=int, default=8, help='number of data loading workers')
+    # parser.add_argument('--pf', type=int, default=100, help='print frequency every batch')
+    # parser.add_argument('--seed', type=int, default=632, help='seed for initializing training.')
+    
+    
+
+    
 
     args = parser.parse_args()
     return args
 
+
+
 def set_config_with_args(args):
+    CONFIG.MODE = args.mode
+
+    CONFIG.MODEL_TYPE= args.model_type
     CONFIG.NUM_WORKERS = args.num_workers
+
+
+    CONFIG.CHECKPOINT.MODEL_SAVE_PATH = args.model_save_ckpt
+    CONFIG.CHECKPOINT.MODEL_LOAD_PATH = args.model_load_ckpt
+    CONFIG.CHECKPOINT.MEMORY_SAVE_PATH = args.memory_save_ckpt
+    CONFIG.CHECKPOINT.MEMORY_LOAD_PATH = args.memory_load_ckpt
+
+    CONFIG.EVALUATION.RESULT_PATH = args.result_csv
 
     
     # log <- datetime info
-    log_datetime =  datetime.now().strftime('%m_%d_%H_%M')
+    log_datetime =  datetime.now().strftime('%m%d_%H%M%S')
     
-    CONFIG.LOG.DIR = os.path.join(args.log, log_datetime, args.experiment_type)
+    CONFIG.LOG.DIR = os.path.join(args.log, log_datetime, args.model_type)
 
     # logdir = os.path.join(CONFIG.LOG.DIR)
     set_logging_defaults(CONFIG.LOG.DIR, args)
@@ -96,10 +132,17 @@ def set_config_with_args(args):
 
     CONFIG.MODEL.DECODER.RNN_LAYER = args.decoder_rnn_layer
 
+
+    CONFIG.MEMORY.CAPACITY_PER_CLASS = args.ref_usage_cnt
+
+    CONFIG.OPTIMIZER.TYPE = args.optimizer
     CONFIG.OPTIMIZER.LR = args.lr
     CONFIG.OPTIMIZER.WD = args.wd
 
     
+
+
+
     CONFIG.TRAIN.NUM_EPOCH = args.num_epoch
     CONFIG.TRAIN.BATCH_SIZE = args.bs
 
@@ -120,6 +163,43 @@ def set_config_with_args(args):
     # CONFIG.DEVICE = device
 
     CONFIG.DATA.DATASET = args.data
+    
+    CONFIG.DATA.DATA_DIR = os.path.join(args.data_dir_root, args.data)
+
+
+
+
+
+
+def set_logging_defaults(logdir, args):
+    if os.path.isdir(logdir):
+        # TODO
+        pass #overwrite
+        # res = input('"{}" exists. Overwrite [Y/n]? '.format(logdir))
+        # if res != 'Y':
+        #     raise Exception('"{}" exists.'.format(logdir))
+    else:
+        os.makedirs(logdir, exist_ok=True) # to mkdir safely in mutl-thread
+
+    # set basic configuration for logging
+    logging.basicConfig(format="[%(asctime)s] [%(name)s] %(message)s",
+                        level=logging.INFO,
+                        handlers=[logging.FileHandler(os.path.join(logdir, 'log.txt')),
+                                  logging.StreamHandler(os.sys.stdout)])
+
+    # log cmdline argumetns
+    logger = logging.getLogger('main')
+    logger.info(' '.join(os.sys.argv))
+    logger.info(args)
+
+
+    for mode in ['train', 'val']:
+        logger = logging.getLogger(mode)
+        logger.addHandler(logging.FileHandler(os.path.join(logdir,mode+'.txt')))
+
+    
+
+
 
 
 # Get the configuration dictionary whose keys can be accessed with dot.
@@ -128,6 +208,19 @@ CONFIG = edict()
 # ******************************************************************************
 # params
 # ******************************************************************************
+CONFIG.MODEL_TYPE = 'base'
+CONFIG.MODE = 'train'
+
+CONFIG.CHECKPOINT = edict()
+CONFIG.CHECKPOINT.MODEL_SAVE_PATH = None
+CONFIG.CHECKPOINT.MODEL_LOAD_PATH = None
+CONFIG.CHECKPOINT.MEMORY_SAVE_PATH = None
+CONFIG.CHECKPOINT.MEMORY_LOAD_PATH = None
+
+
+
+
+
 # CONFIG.DEVICE = 'cpu'
 CONFIG.NUM_WORKERS = 4
 CONFIG.IMAGE_SIZE = 224
@@ -225,11 +318,15 @@ CONFIG.MODEL.L2_REG_WEIGHT = 0.00001
 CONFIG.MODEL.DECODER = edict()
 CONFIG.MODEL.DECODER.RNN_LAYER = 1
 
+
+CONFIG.MEMORY = edict()
+CONFIG.MEMORY.CAPACITY_PER_CLASS = 5
+
 # ******************************************************************************
 # Optimizer params
 # ******************************************************************************
 CONFIG.OPTIMIZER = edict()
-CONFIG.OPTIMIZER.TYPE = 'Adam'
+CONFIG.OPTIMIZER.TYPE = 'sgd' 
 CONFIG.OPTIMIZER.LR = 1e-3
 CONFIG.OPTIMIZER.WD = 1e-3
 CONFIG.OPTIMIZER.MOMENTUM  = 9e-1
@@ -253,3 +350,6 @@ CONFIG.OPTIMIZER.MOMENTUM  = 9e-1
 # ******************************************************************************
 CONFIG.LOG = edict()
 CONFIG.LOG.DIR = './log/'
+
+CONFIG.EVALUATION = edict()
+CONFIG.EVALUATION.RESULT_PATH =''

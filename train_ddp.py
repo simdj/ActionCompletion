@@ -24,18 +24,18 @@ from torch.optim.lr_scheduler import StepLR
 
 
 
-from utils import progress_bar, set_logging_defaults
-from vidaug import augmentors as va
+from utils import progress_bar
+# from vidaug import augmentors as va
 
-from datasets.video_to_frames import UCF101Dataset
-from datasets.rgbd_ac import RGBD_AC_Dataset
-from datasets.self_supervised_data import Self_Supervised_Dataset
-
-
-from models.alignment import batch_get_alignment
+# from datasets.video_to_frames import UCF101Dataset
+# from datasets.rgbd_ac import RGBD_AC_Dataset
+# from datasets.self_supervised_data import Self_Supervised_Dataset
 
 
-from models.algo import get_model
+# from models.alignment import batch_get_alignment
+
+
+from models.algo import get_model, get_model_loss_optim, save_checkpoint_distributed, load_checkpoint_distributed
 
 
 
@@ -47,181 +47,8 @@ import random
 
 
 
-
-
-
-
-# CONFIG.N_GPU = 4
-
-def make_batch(samples):
-    inputs = [sample[0] for sample in samples]
-    actions = [sample[1] for sample in samples]
-    moments = [sample[2] for sample in samples]
-
-    padded_inputs = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True)
-    return {
-        'frame_seq': padded_inputs.contiguous(),
-        'action': torch.stack(actions).contiguous(),
-        'moment': torch.stack(moments).contiguous()
-    }
-
-
-def get_dataset(data_dir, task_spec=None):
-    input_size = CONFIG.IMAGE_SIZE
-    
-    data_transforms = {
-        "train": transforms.Compose([
-            # transforms.RandomResizedCrop(input_size),
-            transforms.Resize(input_size),
-            transforms.CenterCrop(input_size),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-
-        ]),
-        "val": transforms.Compose([
-            transforms.Resize(input_size),
-            transforms.CenterCrop(input_size),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ])
-    }   
-
-    
-    if CONFIG.DATA.DATASET=='ucf101':
-        class_idx_filename = 'completion_all_classInd.txt'
-        # class_idx_filename = 'completion_blowing_classInd.txt'        
-        train_dataset = UCF101Dataset(data_dir, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM, train=True, transforms_=data_transforms["train"])
-        test_dataset  = UCF101Dataset(data_dir, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM, train=False, transforms_=data_transforms["val"])
-    elif CONFIG.DATA.DATASET=='rgbd_ac':
-        class_idx_filename = 'completion_all_classInd.txt'
-        # class_idx_filename = 'completion_open_classInd.txt'
-        # data_dir : ../data/RGBD-AC
-        train_dataset = RGBD_AC_Dataset(data_dir, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM,  train=True, transforms_=data_transforms["train"])
-        test_dataset  = RGBD_AC_Dataset(data_dir, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM,  train=False, transforms_=data_transforms["val"])
-    elif CONFIG.DATA.DATASET =='self':
-        train_dataset = Self_Supervised_Dataset(data_dir, video_len=CONFIG.SELF_LEARN.VIDEO_LEN, train=True, class_num=CONFIG.DATA.ACTION_CLASS_NUM, transforms_=data_transforms['train'])
-        test_dataset  = Self_Supervised_Dataset(data_dir, video_len=CONFIG.SELF_LEARN.VIDEO_LEN, train=False, class_num=CONFIG.DATA.ACTION_CLASS_NUM, transforms_=data_transforms['val'])
-    else:
-        raise ValueError('Specify data(ucf101/hmdb51/rgbd-ac/self')
-    
-
-    return train_dataset, test_dataset
-    
-
-
-
-# def get_model(base_freeze, embedder_freeze):
-#     model_name  = CONFIG.MODEL.BASE_MODEL.NETWORK
-#     cnn_embed_dim =CONFIG.MODEL.CONV_EMBEDDER_MODEL.EMBEDDING_SIZE
-
-#     frame_sequence_encoder = FrameSequenceEncoder(model_name=model_name, use_pretrained=True, base_feature_extract=base_freeze, embedder_feature_extract=embedder_freeze)
-#     completion_classifier = BaseLineClassifier(embed_dim=cnn_embed_dim)
-
-#     model_to_return = [frame_sequence_encoder, completion_classifier]
-#     return model_to_return
-
-def get_model_loss_optim(task_type):
-    
-    # model
-    model = None
-    # if task_type=='self':
-    #     model = get_model(base_freeze=CONFIG.MODEL.BASE_MODEL.FREEZE, embedder_freeze=False)   
-    # elif task_type=='basic':
-    #     model = get_model(base_freeze=CONFIG.MODEL.BASE_MODEL.FREEZE, embedder_freeze=False) 
-    # elif task_type=='finetune':
-    #     model = get_model(base_freeze=True, embedder_freeze=False) 
-    # else:
-    #     raise ValueError("[get_model_loss_optim] specify task_type, ")
-    # frame_sequence_encoder, completion_classifier = model
-    model = get_model(model_type='base', enc_conv_embedder_freeze=False)
-    
-    # frame_sequence_encoder.cuda()
-    # completion_classifier.cuda() 
-
-    # define loss_fn
-    loss_fn = nn.BCELoss()
-    # loss_fn = loss_fn.cuda()
-
-    # define optim
-    params_to_update = list(model.parameters())
-    # list(frame_sequence_encoder.parameters())+list(completion_classifier.parameters())
-    # optimizer = optim.Adam(params_to_update, lr=CONFIG.OPTIMIZER.LR, weight_decay=CONFIG.OPTIMIZER.WD)
-    optimizer = optim.SGD(params_to_update, lr=CONFIG.OPTIMIZER.LR, momentum=CONFIG.OPTIMIZER.MOMENTUM, weight_decay=CONFIG.OPTIMIZER.WD)
-
-    return model,loss_fn, optimizer
-
-def save_checkpoint(ckpt_path, model, optimizer, epoch, performance):
-    print("Saving..", ckpt_path)
-    # cnn_encoder, rnn_decoder = model
-    state = {
-        # 'config': config.samples,
-        'model': model.state_dict(),
-        # 'encoder': cnn_encoder.state_dict(),
-        # 'decoder': rnn_decoder.state_dict(),
-        'optimizer': optimizer.state_dict(),
-        'performance': performance,
-        'epoch' : epoch,
-        'rng_state' : torch.get_rng_state()
-    }
-    torch.save(state, ckpt_path)
-
-def load_checkpoint(ckpt_path, model, optimizer):
-    print("==> Resuming from ckpt ", ckpt_path)
-    ckpt = torch.load(ckpt_path)
-    
-    # cnn_encoder, rnn_decoder = model
-    # cnn_encoder.load_state_dict(ckpt['encoder'])
-    # rnn_decoder.load_state_dict(ckpt['decoder'])
-    model.load_state_dict(ckpt['model'])
-
-    optimizer.load_state_dict(ckpt['optimizer'])
-    start_epoch = ckpt['epoch']
-    ckpt_performance = ckpt['performance']
-    ckpt_rng_state = ckpt['rng_state']
-    torch.set_rng_state(ckpt_rng_state)
-    return model, optimizer, start_epoch, ckpt_performance, ckpt_rng_state
-
-
-def save_checkpoint_distributed(rank, world_size, ckpt_path, model, optimizer, epoch, performance):
-    
-    print(f"Running save_checkpoint_distributed() on rank {rank}.")
-    if rank ==0:
-        print("Saving..", ckpt_path)
-        # cnn_encoder, rnn_decoder = model
-        state = {
-            # 'config': config.samples,
-            # 'encoder': cnn_encoder.state_dict(),
-            # 'decoder': rnn_decoder.state_dict(),
-            'model': model.state_dict(),
-            'optimizer': optimizer.state_dict(),
-            'performance': performance,
-            'epoch' : epoch,
-            'rng_state' : torch.get_rng_state()
-        }
-        torch.save(state, ckpt_path)
-    # use a barrier() to prevent other processes loading the model !before! process 0 saves it
-    dist.barrier()
-
-
-def load_checkpoint_distributed(rank, world_size, ckpt_path, ddp_model, optimizer):
-    print(f"Running load_checkpoint_distributed() on rank {rank}.")
-    print("==> Resuming from ckpt ", ckpt_path)
-
-    map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}  # ddp
-
-    ckpt = torch.load(ckpt_path, map_location=map_location) # ddp
-    
-    # cnn_encoder, rnn_decoder = ddp_model
-    # cnn_encoder.load_state_dict(ckpt['encoder'])
-    # rnn_decoder.load_state_dict(ckpt['decoder'])
-    ddp_model.load_state_dict(ckpt['model'])
-
-    optimizer.load_state_dict(ckpt['optimizer'])
-    start_epoch = ckpt['epoch']
-    ckpt_performance = ckpt['performance']
-    ckpt_rng_state = ckpt['rng_state']
-    torch.set_rng_state(ckpt_rng_state)
-    return ddp_model, optimizer, start_epoch, ckpt_performance, ckpt_rng_state
+from utils import *
+from datasets.mngt import get_dataset
 
 
 
@@ -230,6 +57,11 @@ def train_one_epoch(rank, model, loader, optimizer, loss_fn, epoch):
     # cnn_encoder, rnn_decoder = model
     # cnn_encoder.train()
     # rnn_decoder.train()
+    # model.pre_processing_at_training_epoch()
+    # print(model.module)
+    model.module.pre_processing_at_training_epoch()
+
+
     model.train()
 
     res = edict()
@@ -252,8 +84,6 @@ def train_one_epoch(rank, model, loader, optimizer, loss_fn, epoch):
         # feed forward
         pred = model(batch_frame_seq, batch_action)
 
-        # cnn_feat_seq = cnn_encoder(batch_frame_seq)
-        # pred = rnn_decoder(cnn_feat_seq, batch_action)
 
         # optimize
         loss = loss_fn(pred, label)
@@ -280,14 +110,17 @@ def train_one_epoch(rank, model, loader, optimizer, loss_fn, epoch):
             progress_bar(batch_idx, len(loader), 'Loss: %.3f | MAE: %.3f | ACC: %.3f' 
                 % ( res.sum_loss/(batch_idx+1), res.sum_mae/(batch_idx+1), res.sum_acc/(batch_idx+1))
             )
+        
     if rank==0:
         logger = logging.getLogger('train')
-        logger.info('{} Epoch {}time: {:.2f} s.   LOSS: {:.2f} MAE: {:.2f} ACC: {:.2f}'.format(
+        logger.info('{} Epoch {}time: {:.2f} s.   LOSS: {:.4f} MAE: {:.4f} ACC: {:.4f}'.format(
             rank, epoch, time.time() - time_epoch_start, np.mean(res.loss_list), np.mean(res.score_list), np.mean(res.acc_list)
         ))
+
+    
     
 
-def val(rank, model, loader, optimizer, loss_fn, epoch):
+def val(rank, model, loader, loss_fn, epoch):
     # cnn_encoder, rnn_decoder = model
     # cnn_encoder.eval()
     # rnn_decoder.eval()
@@ -344,18 +177,57 @@ def val(rank, model, loader, optimizer, loss_fn, epoch):
     # final log
     if rank==0:
         logger = logging.getLogger('val')
-        logger.info('Epoch {} time: {:.2f} s.   LOSS: {:.2f} MAE: {:.2f} ACC: {:.2f}'.format(
+        logger.info('Epoch {} time: {:.2f} s.   LOSS: {:.4f} MAE: {:.4f} ACC: {:.4f}'.format(
             epoch, time.time() - time_epoch_start, np.mean(res.loss_list), np.mean(res.score_list), np.mean(res.acc_list)
         ))
 
-    final_score = np.mean(res.score_list) # MAE
+    # final_score = np.mean(res.score_list) # MAE
+    final_score = np.mean(res.loss_list) # BCE
 
     return final_score
 
 
+import pandas as pd
+def evaulate_performance( model, loader,  result_csv_path):   
+    print("evaluation started --> ", result_csv_path)
+    model.eval()
+    time_epoch_start = time.time()
+    df_res = pd.DataFrame()
+    with torch.no_grad():
+        for batch_idx, data in enumerate(loader):
+            time_batch_start = time.time()
+            # batch_frame_seq = data['frame_seq'].to(device)
+            batch_frame_seq = data['frame_seq'].cuda()
+            batch_action = data['action'].cuda()
+            batch_moment = data['moment']
+            batch_video_name = data['video_name']
+
+            complete_mask = batch_moment>0
+            label = (batch_moment>0).float().cuda()
+
+
+
+            # data ready 
+
+            # feed forward
+            pred = model(batch_frame_seq, batch_action).detach().cpu().tolist()
+
+            df = pd.DataFrame({
+                "video": batch_video_name,
+                "class": torch.argmax(batch_action, dim=-1).reshape(-1).detach().cpu().numpy(),
+                "label": label.reshape(-1).detach().cpu().numpy(),
+                "prediction": pred
+                })
+            
+            df_res=df_res.append(df, ignore_index=True)
+        
+    
+    df_res.to_csv(result_csv_path)
+
+
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = '127.0.0.1'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = '12466'
     # initialize the process group
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
@@ -364,123 +236,152 @@ def cleanup():
     dist.destroy_process_group()
 
 def do_learning(rank):
-    '''
-    input: params: edict
-    '''
     args = parse_args()
     set_config_with_args(args)    
+    
     # ------------------------------------------------------------------------------------------------------
     # device configuration
     # ------------------------------------------------------------------------------------------------------
     print(f"running DDP on rank {rank}")    
     setup(rank, world_size=CONFIG.N_GPU)
-    # TODO - cpu compability code needed
-    # CONFIG.DEVICE = torch.cuda.device(rank)
     torch.cuda.set_device(rank)    
-    
-
-    # ------------------------------------------------------------------------------------------------------
-    # learning configuration
-    # ------------------------------------------------------------------------------------------------------
-    original_dataset = CONFIG.DATA.DATASET
-    single_model_ckpt_path = './final_model_single.ckpt'
-
-    params = edict()
-    params.task_type='self'
-    params.pre_trained_ckpt_path = None
-    params.save_ckpt_path = single_model_ckpt_path
-
-
-
-    # ------------------------------------------------------------------------------------------------------
-    # model, loss, optimizier
-    # ------------------------------------------------------------------------------------------------------  
-    model, loss_fn, optimizer  = get_model_loss_optim(params.task_type)
-    if params.pre_trained_ckpt_path:
-        model, optimizer, start_epoch, _, _ = load_checkpoint(params.pre_trained_ckpt_path, model, optimizer)
-    
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
-
-    # frame_sequence_encoder, completion_classifier = model
-    
-    # ------------------------------------------------------------------------------------------------------
-    # DDP model
-    # ------------------------------------------------------------------------------------------------------
-    # frame_sequence_encoder.to(rank)
-    # completion_classifier.to(rank)
-
-    # frame_sequence_encoder = torch.nn.SyncBatchNorm.convert_sync_batchnorm(frame_sequence_encoder)
-    # completion_classifier = torch.nn.SyncBatchNorm.convert_sync_batchnorm(completion_classifier)
-
-    # DDP_frame_sequence_encoder = DDP(frame_sequence_encoder, device_ids=[rank], find_unused_parameters=True)
-    # DDP_completion_classifier = DDP(completion_classifier, device_ids=[rank], find_unused_parameters=True)
-
-    
-    # model = [DDP_frame_sequence_encoder, DDP_completion_classifier]
-
-
-
-    model.to(rank)
-    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-    DDP_model = DDP(model, device_ids=[rank], find_unused_parameters=True)
-    model = DDP_model
 
     # ------------------------------------------------------------------------------------------------------
     # DDP data loader
     # ------------------------------------------------------------------------------------------------------
     train_dataset, test_dataset = get_dataset(data_dir=CONFIG.DATA.DATA_DIR, task_spec=CONFIG.SELF_LEARN.TASK_SPEC)
-    print("train_dataset", train_dataset)
     
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, 
         num_replicas=CONFIG.N_GPU, rank=rank, shuffle=True)
-    test_sampler  = torch.utils.data.distributed.DistributedSampler(test_dataset, 
-        num_replicas=CONFIG.N_GPU, rank=rank, shuffle=True)
+    # test_sampler  = torch.utils.data.distributed.DistributedSampler(test_dataset, 
+    #     num_replicas=CONFIG.N_GPU, rank=rank, shuffle=True)
 
 
     batch_size = CONFIG.TRAIN.BATCH_SIZE
     train_dataloader = DataLoader(train_dataset, batch_size=int(batch_size/CONFIG.N_GPU), 
         collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, sampler=train_sampler, pin_memory=True)
-    test_dataloader  = DataLoader(test_dataset,  batch_size=int(batch_size/CONFIG.N_GPU), 
-        collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, sampler=test_sampler, pin_memory=True)
+    # test_dataloader  = DataLoader(test_dataset,  batch_size=int(batch_size/CONFIG.N_GPU), 
+    #     collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, sampler=test_sampler, pin_memory=True)
 
+    # same validation data
+    test_dataloader  = DataLoader(test_dataset,  batch_size=int(batch_size/CONFIG.N_GPU), 
+        collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, pin_memory=True)
+
+    # ------------------------------------------------------------------------------------------------------
+    # learning configuration
+    # ------------------------------------------------------------------------------------------------------
+    original_dataset = CONFIG.DATA.DATASET
     
+    params = edict()
+    params.model_type=CONFIG.MODEL_TYPE
+
+    params.model_ckpt_save_path = CONFIG.CHECKPOINT.MODEL_SAVE_PATH
+    params.model_ckpt_load_path = CONFIG.CHECKPOINT.MODEL_LOAD_PATH
+    params.memory_ckpt_save_path = CONFIG.CHECKPOINT.MEMORY_SAVE_PATH
+    params.memory_ckpt_load_path = CONFIG.CHECKPOINT.MEMORY_LOAD_PATH
+
+    params.enc_conv_embedder_freeze = False
+
+
+    params.loader = train_dataloader
+    params.memory_capacity_per_class = CONFIG.MEMORY.CAPACITY_PER_CLASS
+
+
+    # ------------------------------------------------------------------------------------------------------
+    # model, loss, optimizier
+    # ------------------------------------------------------------------------------------------------------  
+    model, loss_fn, optimizer  = get_model_loss_optim(params)
+    
+    # ------------------------------------------------------------------------------------------------------
+    # DDP model
+    # ------------------------------------------------------------------------------------------------------
+    model.to(rank)
+    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    DDP_model = DDP(model, device_ids=[rank], find_unused_parameters=True)
+    model = DDP_model
+
+    if params.model_ckpt_load_path:
+        model, optimizer, start_epoch, _, _ = load_checkpoint_distributed(rank, params, model, optimizer)
+    
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+
     # ------------------------------------------------------------------------------------------------------
     # learning loop
     # ------------------------------------------------------------------------------------------------------
 
-
-    # fill up params
-    # 
-
     best_MAE = np.inf 
-    # device = CONFIG.DEVICE
     for epoch in range(CONFIG.TRAIN.NUM_EPOCH):
         train_sampler.set_epoch(epoch)
-        test_sampler.set_epoch(epoch)
+        # test_sampler.set_epoch(epoch)
         train_one_epoch(rank, model, train_dataloader, optimizer, loss_fn, epoch)
-        current_MAE = val(rank, model, test_dataloader, optimizer, loss_fn, epoch)
+        current_MAE = val(rank, model, test_dataloader, loss_fn, epoch)
+        
+        if current_MAE > 0.8:
+            break # no hope.... end loop
+ 
         lr_scheduler.step()
         
-        # if current_MAE < best_MAE:
-        #     save_checkpoint(save_ckpt_path, model, optimizer, epoch, best_MAE)
-        #     best_MAE = current_MAE
+        if current_MAE < best_MAE:
+            save_checkpoint_distributed(rank, params, model, optimizer, epoch, best_MAE)
+            best_MAE = current_MAE
 
 
-
-
-
-if __name__ == "__main__":
-    # if args.experiment_type =='basic':
-    #     experiment_basic()
-    # elif args.experiment_type =='finetune':
-    #     experiment_finetune()
-    # elif args.experiment_type =='self':
-    #     experiment_self_learning()
-    # elif args.experiment_type =='whole':
-    #     whole_process()
-    # else:
-    #     raise ValueError("speicfy experiment type")
-    # mp.spawn(do_learning, args=(), nprocs=CONFIG.N_GPU, join=True)
+def do_inference():
     args = parse_args()
-    set_config_with_args(args)
-    mp.spawn(do_learning, args=(), nprocs=4, join=True)
+    set_config_with_args(args)    
+    
+    rank=0
+    setup(rank, world_size=1)
+    torch.cuda.set_device(rank)
+
+    # ------------------------------------------------------------------------------------------------------
+    # data loader
+    # ------------------------------------------------------------------------------------------------------
+    train_dataset, test_dataset = get_dataset(data_dir=CONFIG.DATA.DATA_DIR, task_spec=CONFIG.SELF_LEARN.TASK_SPEC)
+        
+    batch_size = CONFIG.TRAIN.BATCH_SIZE
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, 
+        collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, pin_memory=True)
+    test_dataloader  = DataLoader(test_dataset,  batch_size=batch_size, 
+        collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, pin_memory=True)
+
+    
+
+    # ------------------------------------------------------------------------------------------------------
+    # model configuration
+    # ------------------------------------------------------------------------------------------------------
+    params = edict()
+    params.model_type=CONFIG.MODEL_TYPE
+    params.enc_conv_embedder_freeze = True
+    # params.model_ckpt_save_path = CONFIG.CHECKPOINT.MODEL_SAVE_PATH
+    params.model_ckpt_load_path = CONFIG.CHECKPOINT.MODEL_LOAD_PATH
+    # params.memory_ckpt_save_path = CONFIG.CHECKPOINT.MEMORY_SAVE_PATH
+    params.memory_ckpt_load_path = CONFIG.CHECKPOINT.MEMORY_LOAD_PATH
+
+    params.loader = train_dataloader
+    params.memory_capacity_per_class = CONFIG.MEMORY.CAPACITY_PER_CLASS
+
+
+    # ------------------------------------------------------------------------------------------------------
+    # model, loss, optimizier
+    # ------------------------------------------------------------------------------------------------------  
+    model, loss_fn, optimizer  = get_model_loss_optim(params)
+    model.to(rank)
+    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    DDP_model = DDP(model, device_ids=[rank], find_unused_parameters=True)
+    model = DDP_model
+    
+    if params.model_ckpt_load_path:
+        model, optimizer, start_epoch, _, _ = load_checkpoint_distributed(rank, params, model, optimizer)
+    
+    evaulate_performance(model, test_dataloader, CONFIG.EVALUATION.RESULT_PATH)
+        
+        
+if __name__ == "__main__":
+    
+    args = parse_args()
+       
+    if args.mode=='train':
+        mp.spawn(do_learning, args=(), nprocs=4, join=True)
+    else:
+        do_inference()
