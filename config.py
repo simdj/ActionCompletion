@@ -56,13 +56,20 @@ def parse_args():
 
 
     # data category
-    parser.add_argument('--data', type=str, default='self', help='ucf101/hmdb51/rgbd_ac')
-    # parser.add_argument('--dataset', type=str, default='ucf101', help='ucf101/hmdb51')
+    
     parser.add_argument('--data_dir_root', type=str, default='../data', help='data root dir containing ucf101, hmdb51, rgbd_ac')
+
+    parser.add_argument('--data', type=str, default='rgbd_ac', help='ucf101/hmdb51/rgbd_ac')
+    parser.add_argument('--self_learn', type=bool, default=False, help='self supervised dataset usage floag')
 
     parser.add_argument('--split', type=str, default='1', help='dataset split')
     # dataset spec
     parser.add_argument('--video_len', type=int, default=64, help='video length')
+
+
+
+
+
 
 
     # model - enc, dec
@@ -72,7 +79,7 @@ def parse_args():
 
     # model - memory module
     parser.add_argument('--memory_start_epoch', type=int, default=10, help='epoch when memory moddule is used')
-    parser.add_argument('--ref_usage_cnt', type=int, default=10, help='number of reference memory to use')
+    parser.add_argument('--ref_usage_cnt', type=int, default=5, help='number of reference memory to use')
     
     # device
     parser.add_argument('--sgpu', type=int, default=0, help='GPU id')
@@ -163,11 +170,12 @@ def set_config_with_args(args):
     # CONFIG.DEVICE = device
 
     CONFIG.DATA.DATASET = args.data
+    CONFIG.SELF_LEARN.USE =  args.self_learn
     
     CONFIG.DATA.DATA_DIR = os.path.join(args.data_dir_root, args.data)
 
-
-
+    # logging 
+    logger.info(CONFIG)
 
 
 
@@ -258,6 +266,7 @@ CONFIG.TRAIN.BATCH_SIZE = 8
 # self-learning params
 # ******************************************************************************
 CONFIG.SELF_LEARN = edict()
+CONFIG.SELF_LEARN.USE = False
 CONFIG.SELF_LEARN.VIDEO_LEN = 16
 CONFIG.SELF_LEARN.TASK_SPEC = None
 

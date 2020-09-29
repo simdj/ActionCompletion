@@ -33,7 +33,7 @@ class FrameSequenceEncoder(nn.Module):
 		self.conv_embedder = ConvEmbedder(embedder_freeze)
 
 
-	def forward(self, frame_seq, num_frames_of_context=2):
+	def forward(self, frame_seq, num_frames_of_context=4):
 		"""
 			frame_seq: shape: (Batch x seq_len x C x H x W)
 			emb_output : shape : (Batch x seq_len//num_frames_of_context x emb_dim)
@@ -236,7 +236,7 @@ class ConvEmbedder(nn.Module):
 			for param in self.parameters():
 				param.requires_grad=False
 
-	def forward(self, cnn_feat_seq, num_frames_of_context=2, shape_check=False):
+	def forward(self, cnn_feat_seq, num_frames_of_context=4, shape_check=False):
 		"""
 		 cnn_feat_seq shape: {BS x seq_len} x  C x H x W 
 			# seq_len = num_context x num_frames_of_context

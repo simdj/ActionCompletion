@@ -260,12 +260,17 @@ def do_learning(rank):
     batch_size = CONFIG.TRAIN.BATCH_SIZE
     train_dataloader = DataLoader(train_dataset, batch_size=int(batch_size/CONFIG.N_GPU), 
         collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, sampler=train_sampler, pin_memory=True)
+    
     # test_dataloader  = DataLoader(test_dataset,  batch_size=int(batch_size/CONFIG.N_GPU), 
     #     collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, sampler=test_sampler, pin_memory=True)
 
     # same validation data
     test_dataloader  = DataLoader(test_dataset,  batch_size=int(batch_size/CONFIG.N_GPU), 
         collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, pin_memory=True)
+
+    # no shuffle! -> sample=None
+    dataloader_for_memory = DataLoader(train_dataset, batch_size=int(batch_size/CONFIG.N_GPU), 
+        collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, pin_memory=True) 
 
     # ------------------------------------------------------------------------------------------------------
     # learning configuration
@@ -283,7 +288,8 @@ def do_learning(rank):
     params.enc_conv_embedder_freeze = False
 
 
-    params.loader = train_dataloader
+    params.loader = dataloader_for_memory
+
     params.memory_capacity_per_class = CONFIG.MEMORY.CAPACITY_PER_CLASS
 
 

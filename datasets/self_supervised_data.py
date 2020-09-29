@@ -26,30 +26,64 @@ from video_generation.SS_TASK import generate_rotation_task, get_rotation_task
 
 from utils import *
 
+class Union_Dataset(Dataset):
+	def __init__(self,  original_dataset, self_supervised_dataset, ssl_ratio=0.2):
+		self.original_dataset = original_dataset
+		self.self_supervised_dataset = self_supervised_dataset
+		self.class_set = list(self.original_dataset.class_set) +list(self.self_supervised_dataset.class_set)
+		
+
+		self.length = int (len(self.original_dataset) * (1+ssl_ratio))
+		
+	def __len__(self):
+		return self.length
+
+	def __getitem__(self, idx):
+		if idx < len(self.original_dataset):
+			return self.original_dataset[idx]
+		else:
+			idx_fixed = idx-len(self.original_dataset)
+			return self.self_supervised_dataset[idx_fixed]
+
+
+
 class Self_Supervised_Dataset(Dataset):
-	def __init__(self, root_dir, split='1', train=True, video_len=100, task_idx=0, transforms_=None, class_num=10):
+	def __init__(self, root_dir, split='1', train=True, video_len=100, class_idx=0, transforms_=None, class_num=10):
 		self.root_dir = root_dir
 		self.split = split
 		self.train = train
 
 		self.video_len = video_len
-		self.task_idx = task_idx 
+		self.class_idx = class_idx 
 
 		self.transforms_ = transforms_
 		self.class_num = class_num
 
-		self.init_with_ucf101()
 
-		self.init_task_info(self.task_idx)
 
-		self.class_set = [0]  # TODO action class		
+		self.dataset_to_use = CONFIG.DATA.DATASET
+
+		annotation_split_path = os.path.join(self.root_dir, 'completion_annotation.txt')
+		# 	[ex] Basketball/v_Basketball_g02_c06 101 2/1/1		
+		# 	[ex] c_a01s02e01 70 1/2/1/1/1/1/1/1
+		completion_annotation = pd.read_csv(annotation_split_path, header=None, sep=' ')
+		# [split] 0: drop / 1:train / 2:test
+		split_idx = int(self.split)-1 # assert split=[1-3]
+		train_test_split = completion_annotation[2].str.split('/').str[split_idx].astype('int32')
+		self.train_split = completion_annotation[train_test_split==1].reset_index()
+		self.test_split = completion_annotation[train_test_split==2].reset_index()
+
+		self.init_task_info(self.class_idx)
+
+		self.class_set = [self.class_idx]  # TODO action class		
 	
 
-	def init_task_info(self, task_idx=0):
-		if task_idx==-1:
-			rotation_task = generate_rotation_task()
-		else:
-			rotation_task = get_rotation_task(task_idx)
+	def init_task_info(self, class_idx=0):
+		rotation_task = generate_rotation_task()
+		# if class_idx==-1:
+		# 	rotation_task = generate_rotation_task()
+		# else:
+		# 	rotation_task = get_rotation_task(class_idx)
 
 		self.positive_ratio = rotation_task.positive_ratio
 		self.list_positive_schedule_skeleton = rotation_task.pos
@@ -59,16 +93,7 @@ class Self_Supervised_Dataset(Dataset):
 		# self.list_negative_schedule_skeleton = [[0,50], [0,-90], [0,-50], [0,30,-30]]
 		print('train:', self.train, ' -self supervised task', self.positive_ratio, self.list_positive_schedule_skeleton, self.list_negative_schedule_skeleton)
 
-	
-	def init_with_ucf101(self):
-		annotation_split_path = os.path.join(self.root_dir, 'completion_annotation.txt')
-		# 	[ex] Basketball/v_Basketball_g02_c06 101 2/1/1		
-		completion_annotation = pd.read_csv(annotation_split_path, header=None, sep=' ')
-		# [split] 0: drop / 1:train / 2:test
-		split_idx = int(self.split)-1 # assert split=[1-3]
-		train_test_split = completion_annotation[2].str.split('/').str[split_idx].astype('int32')
-		self.train_split = completion_annotation[train_test_split==1].reset_index()
-		self.test_split = completion_annotation[train_test_split==2].reset_index()
+			
 
 
 	def __len__(self):
@@ -88,10 +113,20 @@ class Self_Supervised_Dataset(Dataset):
 		else:
 			item = self.test_split.iloc[idx]
 		
-		# parsing for select a target frame dir 
-		video_name = item[0]
-		frames_dir = video_name.split("/").pop()
-		frames_dir = os.path.join(self.root_dir, 'jpegs_256', frames_dir)
+		if self.dataset_to_use=='ucf101':
+			# parsing for select a target frame dir 
+			video_name = item[0]
+			frames_dir = video_name.split("/").pop()
+			frames_dir = os.path.join(self.root_dir, 'jpegs_256', frames_dir)
+		else:
+			# RGBD-AC
+			# video_name = item[0]
+			video_name = "not_use"
+			
+			action_name = random.choice( [act for act in os.listdir(self.root_dir) if os.path.isdir(os.path.join(self.root_dir,act))] )
+			scene_name = random.choice(os.listdir(os.path.join(self.root_dir,action_name)))
+			frames_dir = os.path.join(self.root_dir, action_name, scene_name, 'RGB_images')
+		
 		# randoly choose one of frame in the frames_dir
 		randomly_choosen_frame_file = random.choice(os.listdir(frames_dir)) # fully random
 		# randomly_choosen_frame_file = random.choice(os.listdir(frames_dir)[:1]) # deterministic
@@ -128,16 +163,16 @@ class Self_Supervised_Dataset(Dataset):
 			video_tensor = torch.stack([transforms.ToTensor()(img) for img in pil_seq])
 		
 
-		label_completeness = True
+		label_completeness = 1
 		if not flag_sample_positive:
-			label_completeness = False
-		if idx<100:
-			if label_completeness:
-				save_pil_list(pil_seq, 'pos.avi')
-			else:
-				save_pil_list(pil_seq, 'neg.avi')
+			label_completeness = 0
+		# if idx<100:
+		# 	if label_completeness:
+		# 		save_pil_list(pil_seq, 'pos.avi')
+		# 	else:
+		# 		save_pil_list(pil_seq, 'neg.avi')
 
-		class_idx = torch.tensor([0]).long()		
+		class_idx = torch.tensor([self.class_idx]).long()		
 		class_one_hot_tensor = torch.nn.functional.one_hot(class_idx, self.class_num)
 		
 		label_tensor = torch.tensor(label_completeness)

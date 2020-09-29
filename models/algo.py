@@ -61,6 +61,9 @@ class BASE_MEMORY(nn.Module):
 
 		self.loader = loader
 		self.memory_class_set = loader.dataset.class_set
+
+
+
 		
 
 		self.enc = FrameSequenceEncoder(model_name=model_name, embedder_freeze=enc_conv_embedder_freeze)
@@ -120,12 +123,14 @@ class BASE_MEMORY(nn.Module):
 		#  output(query~reference)
 		result_with_memory = result_with_memory.reshape(-1, self.nb_memory)
 		result_with_memory_aggregated = torch.mean(result_with_memory, dim=1, keepdim=True)
-		
-		result_aggregated = torch.cat([result_on_query, result_with_memory_aggregated], dim=1)
+
+		# weighted sum
+		lambda_memory_usage = 0.1
+		result_aggregated = torch.cat([(1-lambda_memory_usage)*result_on_query, lambda_memory_usage*result_with_memory_aggregated], dim=1)
 		# -> shape: batch_size x (1+1)
 
 		# average (implicitly reshape)		
-		result_aggregated = torch.mean(result_aggregated, dim=1)
+		result_aggregated = torch.sum(result_aggregated, dim=1)
 		# -> shape: batch_size
 		return result_aggregated
 
@@ -148,13 +153,13 @@ class BASE_MEMORY(nn.Module):
 		# save memory
 		with open(params.memory_ckpt_save_path, 'wb') as output:
 			pickle.dump(self.memory, output)
-			print("saving ... memory ", params.memory_ckpt_save_path)
+			# print("saving ... memory ", params.memory_ckpt_save_path)
 
 	def post_processing_load(self, params):
 		# load memory
 		with open(params.memory_ckpt_load_path, 'rb') as _input:
 			self.memory = pickle.load(_input)
-			print("loading ... memory ", params.memory_ckpt_load_path)
+			# print("loading ... memory ", params.memory_ckpt_load_path)
 
 		
 

@@ -28,7 +28,7 @@ import random
 class MemoryModule():
 	def __init__(self, class_set, capacity_per_class=5):
 		self.class_set = class_set
-
+		
 		self.capacity_per_class = capacity_per_class
 		self.memory = dict({x:[] for x in self.class_set })
 		
@@ -142,7 +142,7 @@ class MemoryModule():
 				# print(self.memory)
 				# print(memory_full_state, current_memory_size, full_size)
 			
-		print('Memory Construction Done. Elapsed time: {:.2f} s. '.format(time.time() - time_memory_build_start))
+		# print('Memory Construction Done. Elapsed time: {:.2f} s. '.format(time.time() - time_memory_build_start))
 
 	
 

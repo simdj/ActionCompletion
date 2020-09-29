@@ -55,7 +55,7 @@ class RGBD_AC_Dataset(Dataset):
 
 		# self.nb_class = len(self.class_idx2label)
 
-		annotation_split_path = os.path.join(self.root_dir, 'RGBD-AC_completion_moment_annotations.txt')
+		annotation_split_path = os.path.join(self.root_dir, 'completion_annotation.txt')
 		# completion_annotation example
 		# <videoName> <completionAnnotation> <train-test flag per split>
 		# 	[ex] c_a01s02e02 79 1/2/1/1/1/1/1/1		
@@ -74,7 +74,6 @@ class RGBD_AC_Dataset(Dataset):
 		completion_annotation = completion_annotation[annotation_action_pd.isin(interested_action_list)]
 
 		self.class_set = completion_annotation['class_idx'].unique()
-		# print('class set', self.class_set)
 		
 	
 		# [split] 0: drop / 1:train / 2:test

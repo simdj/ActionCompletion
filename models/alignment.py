@@ -93,7 +93,7 @@ def batch_get_scaled_similarity(batch_embs1, batch_embs2, similarity_type, tempe
 		raise ValueError('similarity_type can either be l2 or cosine.')
 
 	dim = batch_embs1.size(2)
-	sim_matrix = torch.div(sim_matrix, dim)
+	# sim_matrix = torch.div(sim_matrix, dim) <- uniform.......
 	sim_matrix = torch.div(sim_matrix, temperature)
 	return sim_matrix
 
@@ -113,11 +113,9 @@ def batch_get_alignment(batch_embs1, batch_embs2, similarity_type='l2', temperat
 		param: batch_embs2: shape: (N x seq_len2 x dim)
 		return: batch_nn_embs : shape (N x seq_len1 x seq_len2)
 	"""
-	seq_len = batch_embs1.size(2)
 	sim_l2 = batch_get_scaled_similarity(batch_embs1, batch_embs2, similarity_type, temperature)
 	softmaxed_sim_l2 = F.softmax(sim_l2, dim=2)
 	# N x seq_len1 x seq_len2
-	# print(softmaxed_sim_l2.shape)
 	batch_nn_embs = torch.bmm(softmaxed_sim_l2, batch_embs2)
 	
 	return batch_nn_embs
