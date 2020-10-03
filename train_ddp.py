@@ -268,9 +268,9 @@ def do_learning(rank):
     test_dataloader  = DataLoader(test_dataset,  batch_size=int(batch_size/CONFIG.N_GPU), 
         collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, pin_memory=True)
 
-    # no shuffle! -> sample=None
+    # do shuffle!
     dataloader_for_memory = DataLoader(train_dataset, batch_size=int(batch_size/CONFIG.N_GPU), 
-        collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, pin_memory=True) 
+        collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, shuffle=True,  pin_memory=True) 
 
     # ------------------------------------------------------------------------------------------------------
     # learning configuration

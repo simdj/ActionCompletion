@@ -12,6 +12,7 @@ from config import CONFIG
 
 def get_dataset(data_dir, task_spec=None):
     input_size = CONFIG.IMAGE_SIZE
+    split = CONFIG.DATA.SPLIT
     
     data_transforms = {
         "train": transforms.Compose([
@@ -34,14 +35,14 @@ def get_dataset(data_dir, task_spec=None):
     if CONFIG.DATA.DATASET=='ucf101':
         class_idx_filename = 'completion_all_classInd.txt'
         # class_idx_filename = 'completion_blowing_classInd.txt'        
-        train_dataset = UCF101Dataset(data_dir, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM, max_video_len=CONFIG.SELF_LEARN.VIDEO_LEN, train=True, transforms_=data_transforms["train"])
-        test_dataset  = UCF101Dataset(data_dir, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM, max_video_len=CONFIG.SELF_LEARN.VIDEO_LEN, train=False, transforms_=data_transforms["val"])
+        train_dataset = UCF101Dataset(data_dir, split=split, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM, max_video_len=CONFIG.SELF_LEARN.VIDEO_LEN, train=True, transforms_=data_transforms["train"])
+        test_dataset  = UCF101Dataset(data_dir, split=split, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM, max_video_len=CONFIG.SELF_LEARN.VIDEO_LEN, train=False, transforms_=data_transforms["val"])
     elif CONFIG.DATA.DATASET=='rgbd_ac':
         class_idx_filename = 'completion_all_classInd.txt'
         # class_idx_filename = 'completion_open_classInd.txt'
         # data_dir : ../data/RGBD-AC
-        train_dataset = RGBD_AC_Dataset(data_dir, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM, max_video_len=CONFIG.SELF_LEARN.VIDEO_LEN,  train=True, transforms_=data_transforms["train"])
-        test_dataset  = RGBD_AC_Dataset(data_dir, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM, max_video_len=CONFIG.SELF_LEARN.VIDEO_LEN,  train=False, transforms_=data_transforms["val"])
+        train_dataset = RGBD_AC_Dataset(data_dir, split=split, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM, max_video_len=CONFIG.SELF_LEARN.VIDEO_LEN,  train=True, transforms_=data_transforms["train"])
+        test_dataset  = RGBD_AC_Dataset(data_dir, split=split, class_idx_filename=class_idx_filename, class_num=CONFIG.DATA.ACTION_CLASS_NUM, max_video_len=CONFIG.SELF_LEARN.VIDEO_LEN,  train=False, transforms_=data_transforms["val"])
     # elif CONFIG.DATA.DATASET =='self':
     #     train_dataset = Self_Supervised_Dataset(data_dir, video_len=CONFIG.SELF_LEARN.VIDEO_LEN, train=True, class_num=CONFIG.DATA.ACTION_CLASS_NUM, transforms_=data_transforms['train'])
     #     test_dataset  = Self_Supervised_Dataset(data_dir, video_len=CONFIG.SELF_LEARN.VIDEO_LEN, train=False, class_num=CONFIG.DATA.ACTION_CLASS_NUM, transforms_=data_transforms['val'])

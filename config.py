@@ -170,6 +170,7 @@ def set_config_with_args(args):
     # CONFIG.DEVICE = device
 
     CONFIG.DATA.DATASET = args.data
+    CONFIG.DATA.SPLIT = args.split
     CONFIG.SELF_LEARN.USE =  args.self_learn
     
     CONFIG.DATA.DATA_DIR = os.path.join(args.data_dir_root, args.data)
@@ -244,6 +245,7 @@ CONFIG.DATA = edict()
 CONFIG.DATA.DATASET = 'ucf101'
 CONFIG.DATA.DATA_DIR = '../data/ucf101'
 CONFIG.DATA.ACTION_CLASS_NUM = 10
+CONFIG.DATA.SPLIT = 1
 CONFIG.test_data = None
 
 
