@@ -26,6 +26,8 @@ class IdentityLayer(nn.Module):
         
     def forward(self, x):
         return x
+
+
 class FrameSequenceEncoder(nn.Module):
 	def __init__(self, model_name='resnet', use_pretrained=True, base_freeze=True, embedder_freeze=False):
 		super(FrameSequenceEncoder, self).__init__()
@@ -33,13 +35,16 @@ class FrameSequenceEncoder(nn.Module):
 		self.conv_embedder = ConvEmbedder(embedder_freeze)
 
 
-	def forward(self, frame_seq, num_frames_of_context=4):
+	def forward(self, frame_seq, num_frames_of_context=-1):
 		"""
 			frame_seq: shape: (Batch x seq_len x C x H x W)
 			emb_output : shape : (Batch x seq_len//num_frames_of_context x emb_dim)
 		"""
 		cnn_feat_seq = self.base_encoder(frame_seq)
-		emb_output = self.conv_embedder(cnn_feat_seq,num_frames_of_context)
+		if num_frames_of_context==-1:
+			emb_output = self.conv_embedder(cnn_feat_seq,CONFIG.MODEL.CONV_EMBEDDER_MODEL.NUM_CONTEXT)
+		else:
+			emb_output = self.conv_embedder(cnn_feat_seq,num_frames_of_context)
 		return emb_output
 
 

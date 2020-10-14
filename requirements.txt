@@ -1,5 +1,4 @@
 absl-py==0.9.0
--e git+https://github.com/simdj/ActionCompletion.git@69e9fd54412e74da35ba63def9cca7e03b2d5819#egg=action_completion_prediction
 cycler==0.10.0
 decorator==4.4.2
 easydict==1.9

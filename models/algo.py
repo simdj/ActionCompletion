@@ -169,7 +169,7 @@ class BASE_MEMORY(nn.Module):
 
 
 def get_model(params):
-	print('get model params ', params)
+	# print('get model params ', params)
 	if params.model_type=='base':
 		return BASE(
 			enc_conv_embedder_freeze=params.enc_conv_embedder_freeze
@@ -228,8 +228,8 @@ def save_checkpoint_distributed(rank, params, model, optimizer, epoch, performan
 
 
 def load_checkpoint_distributed(rank, params, ddp_model, optimizer):
-    print(f"Running load_checkpoint_distributed() on rank {rank}.")
-    print("==> Resuming from ckpt ", params.model_ckpt_load_path)
+    # print(f"Running load_checkpoint_distributed() on rank {rank}.")
+    # print("==> Resuming from ckpt ", params.model_ckpt_load_path)
 
     map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}  # ddp
 

@@ -75,6 +75,9 @@ def parse_args():
     # model - enc, dec
     parser.add_argument('--backbone', type=str, default='resnet50', help='vgg/resnet/c3d/r3d/r21d')
     parser.add_argument('--cnn_freeze', type=bool, default=True, help='freeze cnn encoder')
+    parser.add_argument('--cnn_embedding_dim', type=int, default=64, help='cnn embedding dim')
+    parser.add_argument('--cnn_num_context', type=int, default=2, help='cnn_num_context')
+
     parser.add_argument('--decoder_rnn_layer', type=int, default=1, help='nb of decoder_rnn_layer')
 
     # model - memory module
@@ -123,6 +126,8 @@ def set_config_with_args(args):
 
     CONFIG.EVALUATION.RESULT_PATH = args.result_csv
 
+
+
     
     # log <- datetime info
     log_datetime =  datetime.now().strftime('%m%d_%H%M%S')
@@ -131,11 +136,14 @@ def set_config_with_args(args):
 
     # logdir = os.path.join(CONFIG.LOG.DIR)
     set_logging_defaults(CONFIG.LOG.DIR, args)
-    logger = logging.getLogger('main')
+    
     # logname = os.path.join(logdir, args.log_file_name)
 
     
     CONFIG.MODEL.BASE_MODEL.FREEZE = args.cnn_freeze
+
+    CONFIG.MODEL.CONV_EMBEDDER_MODEL.EMBEDDING_SIZE = args.cnn_embedding_dim
+    CONFIG.MODEL.CONV_EMBEDDER_MODEL.NUM_CONTEXT = args.cnn_num_context 
 
     CONFIG.MODEL.DECODER.RNN_LAYER = args.decoder_rnn_layer
 
@@ -176,7 +184,7 @@ def set_config_with_args(args):
     CONFIG.DATA.DATA_DIR = os.path.join(args.data_dir_root, args.data)
 
     # logging 
-    logger.info(CONFIG)
+    
 
 
 
@@ -198,8 +206,7 @@ def set_logging_defaults(logdir, args):
 
     # log cmdline argumetns
     logger = logging.getLogger('main')
-    logger.info(' '.join(os.sys.argv))
-    logger.info(args)
+    
 
 
     for mode in ['train', 'val']:
@@ -302,12 +309,16 @@ CONFIG.MODEL.CONV_EMBEDDER_MODEL.FC_LAYERS = [
     (256, True),
 ]
 CONFIG.MODEL.CONV_EMBEDDER_MODEL.CAPACITY_SCALAR = 2
-CONFIG.MODEL.CONV_EMBEDDER_MODEL.EMBEDDING_SIZE = 128
+
 CONFIG.MODEL.CONV_EMBEDDER_MODEL.L2_NORMALIZE = False
 CONFIG.MODEL.CONV_EMBEDDER_MODEL.BASE_DROPOUT_RATE = 0.0
 CONFIG.MODEL.CONV_EMBEDDER_MODEL.BASE_DROPOUT_SPATIAL = False
 CONFIG.MODEL.CONV_EMBEDDER_MODEL.FC_DROPOUT_RATE = 0.1
 CONFIG.MODEL.CONV_EMBEDDER_MODEL.USE_BN = True
+
+
+CONFIG.MODEL.CONV_EMBEDDER_MODEL.EMBEDDING_SIZE = 128
+CONFIG.MODEL.CONV_EMBEDDER_MODEL.NUM_CONTEXT = 2
 
 # Conv followed by GRU Embedder
 CONFIG.MODEL.CONVGRU_EMBEDDER_MODEL = edict()
@@ -328,6 +339,7 @@ CONFIG.MODEL.L2_REG_WEIGHT = 0.00001
 
 CONFIG.MODEL.DECODER = edict()
 CONFIG.MODEL.DECODER.RNN_LAYER = 1
+
 
 
 CONFIG.MEMORY = edict()

@@ -13,54 +13,29 @@ import os
 import logging
 import argparse
 import copy
-
-# from easydict import EasyDict as edict
-from torch.utils.data import DataLoader, Dataset
-
-import torch.multiprocessing as mp
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.optim.lr_scheduler import StepLR
-
-
-
-from utils import progress_bar
-# from vidaug import augmentors as va
-
-# from datasets.video_to_frames import UCF101Dataset
-# from datasets.rgbd_ac import RGBD_AC_Dataset
-# from datasets.self_supervised_data import Self_Supervised_Dataset
-
-
-# from models.alignment import batch_get_alignment
-
-
-from models.algo import get_model, get_model_loss_optim, save_checkpoint_distributed, load_checkpoint_distributed
-
-
-
-from config import CONFIG, parse_args, set_config_with_args
-
 from easydict import EasyDict as edict
 import random
 
 
 
+from torch.utils.data import DataLoader, Dataset
+from torch.optim.lr_scheduler import StepLR
+
+import torch.multiprocessing as mp
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+
+from models.algo import get_model, get_model_loss_optim, save_checkpoint_distributed, load_checkpoint_distributed
+from config import CONFIG, parse_args, set_config_with_args
 
 from utils import *
 from datasets.mngt import get_dataset
 
 
-
-
 def train_one_epoch(rank, model, loader, optimizer, loss_fn, epoch):
-    # cnn_encoder, rnn_decoder = model
-    # cnn_encoder.train()
-    # rnn_decoder.train()
-    # model.pre_processing_at_training_epoch()
-    # print(model.module)
-    model.module.pre_processing_at_training_epoch()
 
+    model.module.pre_processing_at_training_epoch()
 
     model.train()
 
@@ -83,7 +58,6 @@ def train_one_epoch(rank, model, loader, optimizer, loss_fn, epoch):
         optimizer.zero_grad()
         # feed forward
         pred = model(batch_frame_seq, batch_action)
-
 
         # optimize
         loss = loss_fn(pred, label)
@@ -121,9 +95,6 @@ def train_one_epoch(rank, model, loader, optimizer, loss_fn, epoch):
     
 
 def val(rank, model, loader, loss_fn, epoch):
-    # cnn_encoder, rnn_decoder = model
-    # cnn_encoder.eval()
-    # rnn_decoder.eval()
     model.eval()
 
     res = edict()
@@ -144,18 +115,12 @@ def val(rank, model, loader, loss_fn, epoch):
 
             # data ready 
 
-            # # # optimizer.zero_grad()
             # feed forward
             pred = model(batch_frame_seq, batch_action)
-            # cnn_feat_seq = cnn_encoder(batch_frame_seq)
-            # pred = rnn_decoder(cnn_feat_seq, batch_action)
-
+            
             loss = loss_fn(pred, label)
 
-            # # # loss.backward()
-            # # # optimizer.step()
-
-
+            # compute loss
             loss_value = loss.item()
             err = torch.abs(pred-label)
             acc = torch.mean((err<0.5).float()).detach().item()
@@ -182,7 +147,7 @@ def val(rank, model, loader, loss_fn, epoch):
         ))
 
     # final_score = np.mean(res.score_list) # MAE
-    final_score = np.mean(res.loss_list) # BCE
+    final_score = np.mean(res.loss_list[:-1]) # BCE
 
     return final_score
 
@@ -238,7 +203,11 @@ def cleanup():
 def do_learning(rank):
     args = parse_args()
     set_config_with_args(args)    
-    
+    if rank==0:
+        logger = logging.getLogger('main')
+        logger.info(' '.join(os.sys.argv))
+        logger.info(args)
+        logger.info(CONFIG)     
     # ------------------------------------------------------------------------------------------------------
     # device configuration
     # ------------------------------------------------------------------------------------------------------
@@ -253,17 +222,12 @@ def do_learning(rank):
     
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, 
         num_replicas=CONFIG.N_GPU, rank=rank, shuffle=True)
-    # test_sampler  = torch.utils.data.distributed.DistributedSampler(test_dataset, 
-    #     num_replicas=CONFIG.N_GPU, rank=rank, shuffle=True)
-
+    
 
     batch_size = CONFIG.TRAIN.BATCH_SIZE
     train_dataloader = DataLoader(train_dataset, batch_size=int(batch_size/CONFIG.N_GPU), 
         collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, sampler=train_sampler, pin_memory=True)
     
-    # test_dataloader  = DataLoader(test_dataset,  batch_size=int(batch_size/CONFIG.N_GPU), 
-    #     collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, sampler=test_sampler, pin_memory=True)
-
     # same validation data
     test_dataloader  = DataLoader(test_dataset,  batch_size=int(batch_size/CONFIG.N_GPU), 
         collate_fn=make_batch, num_workers=CONFIG.NUM_WORKERS, pin_memory=True)
@@ -297,7 +261,9 @@ def do_learning(rank):
     # model, loss, optimizier
     # ------------------------------------------------------------------------------------------------------  
     model, loss_fn, optimizer  = get_model_loss_optim(params)
-    
+    if rank==0:
+        print(params)
+        
     # ------------------------------------------------------------------------------------------------------
     # DDP model
     # ------------------------------------------------------------------------------------------------------
@@ -309,7 +275,7 @@ def do_learning(rank):
     if params.model_ckpt_load_path:
         model, optimizer, start_epoch, _, _ = load_checkpoint_distributed(rank, params, model, optimizer)
     
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
     # ------------------------------------------------------------------------------------------------------
     # learning loop
@@ -318,14 +284,11 @@ def do_learning(rank):
     best_MAE = np.inf 
     for epoch in range(CONFIG.TRAIN.NUM_EPOCH):
         train_sampler.set_epoch(epoch)
-        # test_sampler.set_epoch(epoch)
         train_one_epoch(rank, model, train_dataloader, optimizer, loss_fn, epoch)
         current_MAE = val(rank, model, test_dataloader, loss_fn, epoch)
         
-        if current_MAE > 0.8:
-            break # no hope.... end loop
- 
-        lr_scheduler.step()
+        
+        # lr_scheduler.step()
         
         if current_MAE < best_MAE:
             save_checkpoint_distributed(rank, params, model, optimizer, epoch, best_MAE)

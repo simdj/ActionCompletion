@@ -26,13 +26,14 @@ class RGBD_AC_Dataset(Dataset):
 	"""
 
 	def __init__(self, root_dir, split='1', class_idx_filename='completion_all_classInd.txt',
-	 train=True, transforms_=None, augments_=None, max_video_len=64, read_from_images=True, class_num=10):
+	 train=True, transforms_=None, video_transforms_=None, augments_=None, max_video_len=64, read_from_images=True, class_num=10):
 		# self.label_category = get_ucf101_action_completeness_category()
 		self.root_dir  = root_dir
 		self.split = split
 		self.train = train
 
 		self.transforms_ = transforms_
+		self.video_transforms_ = video_transforms_
 		self.augments_ = augments_
 		
 		self.max_video_len = max_video_len
@@ -137,8 +138,10 @@ class RGBD_AC_Dataset(Dataset):
 			image_data = image_io.imread(image_path)
 			video_data[video_idx,:,:,:] = image_data
 		
-		if self.augments_:
-			video_data = self.augments_(video_data)
+		# if self.augments_:
+		# 	video_data = self.augments_(video_data)
+		if self.video_transforms_:
+			video_data = self.video_transforms_(video_data)
 		
 		if self.transforms_:
 			trans_video = []
